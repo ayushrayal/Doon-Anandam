@@ -1,29 +1,53 @@
 # Dependencies
 node_modules/
+**/node_modules/
 /.pnp
 .pnp.js
 
-# Environment variables
+# Environment and secrets (exclude all .env files across all directories)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+**/.env
+**/.env.*
 
-# Production build outputs
+# Explicitly allow safe environment example templates
+!.env.example
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
+
+# Local credentials, certificates, keys, and database dumps
+*.pem
+*.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.dump
+*.sql
+*.sqlite
+*.rdb
+
+# Production build and test coverage outputs
 dist/
+**/dist/
 build/
+**/build/
+coverage/
+**/coverage/
+.nyc_output/
 
-# Logs
+# Logs and debug artifacts
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 .pnpm-debug.log*
 logs/
+**/logs/
 *.log
 
-# Editor & OS files
+# Editor and OS local files
 .DS_Store
 Thumbs.db
 .vscode/
@@ -33,5 +57,3 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
-
-docs/

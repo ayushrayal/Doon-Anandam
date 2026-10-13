@@ -13,15 +13,27 @@ const app = express();
 // Security HTTP headers
 app.use(helmet());
 
-// Development & Client CORS
+// Client CORS credentials configuration
+const allowedOrigins =
+  env.NODE_ENV === 'production'
+    ? [env.CLIENT_URL]
+    : Array.from(new Set([env.CLIENT_URL, 'http://localhost:5173', 'http://127.0.0.1:5173']));
+
 app.use(
   cors({
-    origin: [env.CLIENT_URL, 'http://localhost:5173'],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g., Postman, cURL, server-to-server)
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      // Deny CORS headers for disallowed origins
+      return callback(null, false);
+    },
     credentials: true,
   })
 );
 
-// Basic API rate limiting (100 requests per 15 minutes)
+// Global API rate limiting (100 requests per 15 minutes)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,

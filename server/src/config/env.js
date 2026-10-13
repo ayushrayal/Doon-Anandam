@@ -10,7 +10,7 @@ const envSchema = z.object({
   CLIENT_URL: z.string().trim().default('http://localhost:5173'),
   MONGODB_URI: z.string().trim().optional(),
   JWT_SECRET: z.string().trim().optional(),
-  JWT_EXPIRES_IN: z.string().trim().optional(),
+  JWT_EXPIRES_IN: z.string().trim().default('7d'),
   USE_CUSTOM_DNS: z
     .union([z.boolean(), z.string()])
     .optional()
@@ -46,3 +46,15 @@ export const env = {
   USE_CUSTOM_DNS: useCustomDns,
   isDbConfigured: Boolean(parsed.data.MONGODB_URI && parsed.data.MONGODB_URI.length > 0),
 };
+
+/**
+ * Validates JWT configuration when authentication services initialize.
+ * Enforces minimum length of 32 characters for security.
+ */
+export function validateAuthEnv() {
+  if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
+    throw new Error(
+      'Authentication configuration error: JWT_SECRET is required and must be at least 32 characters long.'
+    );
+  }
+}

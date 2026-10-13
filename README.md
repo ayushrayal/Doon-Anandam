@@ -8,7 +8,7 @@ Production-minded Customer Relationship Management (CRM) system for real estate 
 
 - **Frontend**: React 18, Vite, JavaScript, SCSS
 - **Backend**: Node.js, Express.js (ES Modules)
-- **Database**: MongoDB + Mongoose (Configured in upcoming phase)
+- **Database**: MongoDB Atlas + Mongoose
 - **Security & Utilities**: Helmet, CORS, Express Rate Limit, Zod, Dotenv, Cookie Parser, Bcryptjs, JsonWebToken
 - **API Testing**: Postman / cURL
 - **Deployment Target**: Render (Frontend & Backend separately) + MongoDB Atlas
@@ -31,16 +31,34 @@ doon-anandam-crm/
 │   └── .env.example
 ├── server/                     # Express backend (ES Modules)
 │   ├── src/
-│   │   ├── config/             # Config loader (env vars)
-│   │   ├── controllers/        # Health check controller
-│   │   ├── middleware/         # Security, rate limiter, 404 & error handlers
-│   │   ├── models/             # Mongoose models placeholder
-│   │   ├── routes/             # API routers (GET /api/health)
-│   │   ├── services/           # Business logic placeholder
-│   │   ├── utils/              # Helper utilities placeholder
+│   │   ├── config/             # Config loader (env vars, MongoDB connection)
+│   │   │   ├── db.js
+│   │   │   └── env.js
+│   │   ├── controllers/        # Route controllers
+│   │   │   ├── auth.controller.js
+│   │   │   └── health.controller.js
+│   │   ├── middleware/         # Security, auth, rate limiters, error handlers
+│   │   │   ├── auth.js
+│   │   │   ├── errorHandler.js
+│   │   │   ├── notFound.js
+│   │   │   ├── rateLimiter.js
+│   │   │   ├── validate.js
+│   │   │   └── verifyOrigin.js
+│   │   ├── models/             # Mongoose schemas
+│   │   │   └── User.js
+│   │   ├── routes/             # API routes
+│   │   │   ├── auth.routes.js
+│   │   │   ├── health.routes.js
+│   │   │   └── index.js
+│   │   ├── schemas/            # Zod validation schemas
+│   │   │   └── auth.schema.js
+│   │   ├── utils/              # JWT & helper utilities
+│   │   │   └── jwt.js
 │   │   ├── app.js              # Express app setup
 │   │   └── server.js           # Server bootstrap
-│   ├── scripts/                # Database/migration scripts placeholder
+│   ├── scripts/                # Utility scripts
+│   │   ├── bootstrapAdmin.js   # One-time initial Admin creation
+│   │   └── testAuth.js         # Automated auth test suite
 │   ├── package.json
 │   └── .env.example
 ├── docs/
@@ -57,6 +75,7 @@ doon-anandam-crm/
 ### Prerequisites
 - Node.js (v18+ or v20+ recommended)
 - npm (v9+)
+- MongoDB Atlas cluster or local MongoDB daemon
 
 ### Installation
 
@@ -72,9 +91,45 @@ cd ../client
 npm install
 ```
 
+### Environment Configuration
+
+Create `server/.env` with the following variables:
+
+```env
+PORT=5000
+NODE_ENV=development
+CLIENT_URL=http://localhost:5173
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<database>?retryWrites=true&w=majority
+JWT_SECRET=your_jwt_secret_min_32_characters_long
+JWT_EXPIRES_IN=7d
+USE_CUSTOM_DNS=true
+```
+
 ---
 
-## 4. Running Locally
+## 4. Initial Admin Bootstrap
+
+To create the initial Admin user safely without exposing credentials or allowing public signup:
+
+### PowerShell (Windows)
+```powershell
+cd server
+$env:ADMIN_NAME="System Admin"
+$env:ADMIN_EMAIL="admin@doonanandam.com"
+$env:ADMIN_PASSWORD="YourStrongPassword123!"
+node scripts/bootstrapAdmin.js
+Remove-Item Env:ADMIN_NAME, Env:ADMIN_EMAIL, Env:ADMIN_PASSWORD
+```
+
+### Bash (macOS/Linux)
+```bash
+cd server
+ADMIN_NAME="System Admin" ADMIN_EMAIL="admin@doonanandam.com" ADMIN_PASSWORD="YourStrongPassword123!" node scripts/bootstrapAdmin.js
+```
+
+---
+
+## 5. Running Locally
 
 ### Start the Backend Server
 
@@ -88,8 +143,6 @@ npm run dev
 
 ### Start the Frontend Application
 
-Open a separate terminal:
-
 ```bash
 cd client
 npm run dev
@@ -99,41 +152,63 @@ npm run dev
 
 ---
 
-## 5. API Endpoints
+## 6. Authentication API Endpoints
 
-### Health Check
-
+### 1. Health Check
 ```http
 GET /api/health
 ```
 
-**Response (200 OK):**
-```json
+### 2. Login
+```http
+POST /api/auth/login
+Content-Type: application/json
+
 {
-  "success": true,
-  "service": "Doon Anandam CRM API",
-  "status": "healthy",
-  "timestamp": "2026-10-13T09:25:00.000Z",
-  "uptime": 12
+  "email": "admin@doonanandam.com",
+  "password": "YourStrongPassword123!"
 }
 ```
+*Sets `Set-Cookie: token=<jwt>; HttpOnly; SameSite=Lax; Path=/`*
+
+### 3. Current User Profile
+```http
+GET /api/auth/me
+```
+*Requires authentication cookie `token`.*
+
+### 4. Logout
+```http
+POST /api/auth/logout
+```
+*Clears authentication cookie `token`.*
 
 ---
 
-## 6. Testing with Postman
+## 7. Testing with Postman
 
-1. Open Postman.
-2. Create a new `GET` request to: `http://localhost:5000/api/health`.
-3. Click **Send** and verify a `200 OK` response with the health payload.
+1. **Health Check**: Send `GET http://localhost:5000/api/health` → Expect `200 OK`.
+2. **Login**: Send `POST http://localhost:5000/api/auth/login` with JSON body:
+   ```json
+   {
+     "email": "admin@doonanandam.com",
+     "password": "YourStrongPassword123!"
+   }
+   ```
+   Postman will automatically store the `token` cookie.
+3. **Get Current User**: Send `GET http://localhost:5000/api/auth/me`. The cookie is automatically included, returning user details.
+4. **Logout**: Send `POST http://localhost:5000/api/auth/logout`. Cookie will be cleared.
+5. **Verify Logout**: Send `GET http://localhost:5000/api/auth/me` again → Expect `401 Unauthorized`.
 
 ---
 
-## 7. Production Build Verification
+## 8. Automated Testing
 
-To verify the client production bundle:
+To run the full end-to-end authentication test suite against MongoDB:
 
 ```bash
-cd client
-npm run build
+cd server
+node scripts/testAuth.js
 ```
-Outputs build files into `client/dist/`.
+
+Runs 13 automated checks verifying input validation, password checks, inactive account blocking, HttpOnly cookie security, `/me` authorization, CSRF protection, and rate limiting.
