@@ -1,0 +1,92 @@
+@use '../../styles/variables' as *;
+
+.confirm-dialog {
+  background-color: $color-surface;
+  border-radius: $radius-md;
+  width: 100%;
+  max-width: 440px;
+  box-shadow: $shadow-lg;
+  border: 1px solid rgba($brand-dark-text, 0.12);
+  overflow: hidden;
+  animation: modal-enter 0.18s ease-out;
+
+  &__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.125rem 1.25rem;
+    border-bottom: 1px solid $brand-light-neutral;
+
+    &-left {
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+    }
+  }
+
+  &__icon-badge {
+    width: 28px;
+    height: 28px;
+    border-radius: $radius-xs;
+    background-color: $brand-light-neutral;
+    border: 1px solid rgba($brand-dark-text, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: $brand-navy;
+    flex-shrink: 0;
+  }
+
+  &__title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: $brand-navy;
+    line-height: 1.3;
+  }
+
+  &__close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: $radius-xs;
+    color: $color-text-muted;
+    transition: all $transition-fast;
+
+    &:hover {
+      background-color: $brand-light-neutral;
+      color: $brand-black;
+    }
+  }
+
+  &__body {
+    padding: 1.25rem;
+  }
+
+  &__message {
+    font-size: 0.8125rem;
+    color: $color-text-muted;
+    line-height: 1.55;
+  }
+
+  &__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.625rem;
+    padding: 0.875rem 1.25rem;
+    background-color: $brand-neutral-bg;
+    border-top: 1px solid $brand-light-neutral;
+  }
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

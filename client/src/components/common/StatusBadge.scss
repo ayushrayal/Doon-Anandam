@@ -1,0 +1,59 @@
+@use '../../styles/variables' as *;
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: $radius-xs;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1.4;
+
+  &__dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  &__text {
+    display: inline-block;
+  }
+
+  &--active {
+    background-color: rgba($brand-navy, 0.05);
+    color: $brand-navy;
+    border: 1px solid rgba($brand-navy, 0.15);
+
+    .status-badge__dot {
+      background-color: $brand-accent-blue;
+    }
+  }
+
+  &--inactive {
+    background-color: $brand-light-neutral;
+    color: rgba($brand-dark-text, 0.65);
+    border: 1px solid rgba($brand-dark-text, 0.15);
+
+    .status-badge__dot {
+      background-color: rgba($brand-dark-text, 0.4);
+    }
+  }
+
+  &--role-admin {
+    background-color: rgba($brand-navy, 0.08);
+    color: $brand-navy;
+    border: 1px solid rgba($brand-navy, 0.22);
+    font-weight: 600;
+  }
+
+  &--role-sales {
+    background-color: $brand-light-neutral;
+    color: $brand-dark-text;
+    border: 1px solid rgba($brand-dark-text, 0.12);
+    font-weight: 500;
+  }
+}

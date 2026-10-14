@@ -1,202 +1,52 @@
 @use './styles/variables' as *;
 
-.app-container {
+.app-loader-container {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  padding: 2.5rem 1.5rem;
-}
+  justify-content: center;
+  background-color: $brand-neutral-bg;
+  gap: 1.5rem;
+  padding: 2rem;
 
-.hero {
-  max-width: 860px;
-  width: 100%;
-  text-align: center;
-  margin-bottom: 2.5rem;
-
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.85rem;
-    background: $color-accent-light;
-    color: $color-accent-dark;
-    font-size: 0.825rem;
-    font-weight: 600;
-    border-radius: $radius-full;
-    margin-bottom: 1.25rem;
-    letter-spacing: 0.02em;
-    border: 1px solid rgba($color-accent, 0.2);
-  }
-
-  .title {
-    font-size: 2.75rem;
-    line-height: 1.15;
-    margin-bottom: 0.75rem;
-    letter-spacing: -0.02em;
-  }
-
-  .subtitle {
-    color: $color-text-muted;
-    font-size: 1.125rem;
-    max-width: 600px;
-    margin: 0 auto;
-  }
-}
-
-.cards-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1.25rem;
-  max-width: 860px;
-  width: 100%;
-  margin-bottom: 2rem;
-}
-
-.card {
-  background: $color-surface;
-  border: 1px solid $color-border;
-  border-radius: $radius-md;
-  padding: 1.5rem;
-  box-shadow: $shadow-sm;
-  transition: transform $transition-fast, box-shadow $transition-fast;
-
-  &:hover {
-    transform: translateY(-2px);
-    box-shadow: $shadow-md;
-  }
-
-  .card-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
-
-    .card-icon {
-      font-size: 1.35rem;
-    }
-
-    h3 {
-      font-size: 1.1rem;
-    }
-  }
-
-  p {
-    color: $color-text-muted;
-    font-size: 0.925rem;
-    line-height: 1.45;
-  }
-
-  .pill {
-    display: inline-block;
-    margin-top: 0.85rem;
-    font-size: 0.75rem;
-    padding: 0.2rem 0.6rem;
-    border-radius: $radius-full;
-    background: $color-surface-subtle;
-    color: $color-text;
-    font-weight: 500;
-  }
-}
-
-.health-panel {
-  max-width: 860px;
-  width: 100%;
-  background: $color-surface;
-  border: 1px solid $color-border;
-  border-radius: $radius-md;
-  padding: 1.75rem;
-  box-shadow: $shadow-sm;
-
-  .health-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 1.25rem;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-
-    h2 {
-      font-size: 1.35rem;
-    }
-
-    .check-btn {
-      background: $color-primary;
-      color: white;
-      border: none;
-      padding: 0.5rem 1rem;
-      border-radius: $radius-sm;
-      font-family: inherit;
-      font-size: 0.875rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background $transition-fast;
-
-      &:hover:not(:disabled) {
-        background: $color-primary-light;
-      }
-
-      &:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-      }
-    }
-  }
-
-  .status-box {
-    padding: 1rem 1.25rem;
-    border-radius: $radius-sm;
+  .loader-brand {
     display: flex;
     flex-direction: column;
+    align-items: center;
+    text-align: center;
     gap: 0.5rem;
 
-    &.loading {
-      background: $color-pending-bg;
-      color: $color-pending;
-      border: 1px solid rgba($color-pending, 0.2);
-    }
-
-    &.success {
-      background: $color-success-bg;
-      color: $color-success;
-      border: 1px solid rgba($color-success, 0.2);
-    }
-
-    &.error {
-      background: $color-error-bg;
-      color: $color-error;
-      border: 1px solid rgba($color-error, 0.2);
-    }
-
-    .status-title {
-      font-weight: 600;
-      font-size: 0.95rem;
+    .loader-monogram-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: $radius-xs;
+      background-color: $brand-navy;
+      color: $brand-white;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1rem;
+      letter-spacing: 0.08em;
+      box-shadow: $shadow-sm;
     }
 
-    .status-detail {
-      font-size: 0.85rem;
-      color: $color-text-muted;
+    .brand-wordmark {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: $brand-navy;
+      letter-spacing: 0.08em;
+      line-height: 1.2;
     }
 
-    pre {
-      background: rgba(0, 0, 0, 0.05);
-      padding: 0.75rem;
-      border-radius: $radius-sm;
-      font-size: 0.8rem;
-      overflow-x: auto;
-      color: $color-text;
+    .brand-tagline {
+      display: block;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: $color-text-subtle;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
     }
   }
-}
-
-.footer {
-  margin-top: auto;
-  padding-top: 2rem;
-  color: $color-text-subtle;
-  font-size: 0.825rem;
-  text-align: center;
 }

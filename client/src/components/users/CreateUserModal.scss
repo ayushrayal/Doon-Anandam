@@ -1,0 +1,205 @@
+@use '../../styles/variables' as *;
+
+.user-modal-card {
+  background-color: $brand-white;
+  border-radius: $radius-md;
+  width: 100%;
+  max-width: 500px;
+  box-shadow: $shadow-lg;
+  border: 1px solid rgba($brand-navy, 0.16);
+  overflow: hidden;
+  animation: modal-enter 0.18s ease-out;
+
+  .user-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid $brand-light-neutral;
+
+    .user-modal-title {
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: $brand-navy;
+      line-height: 1.2;
+    }
+
+    .user-modal-desc {
+      font-size: 0.75rem;
+      color: $color-text-muted;
+      margin-top: 0.25rem;
+      line-height: 1.4;
+    }
+
+    .user-modal-close {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: $radius-xs;
+      color: $color-text-muted;
+      margin-left: 0.75rem;
+      flex-shrink: 0;
+      transition: all $transition-fast;
+
+      &:hover {
+        background-color: $brand-light-neutral;
+        color: $brand-black;
+      }
+    }
+  }
+
+  .modal-alert-box {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.75rem 1.5rem;
+    background-color: $brand-light-neutral;
+    border-bottom: 1px solid rgba($brand-dark-text, 0.15);
+    color: $brand-black;
+    font-size: 0.8125rem;
+    font-weight: 500;
+
+    .modal-alert-icon {
+      color: $brand-navy;
+      flex-shrink: 0;
+    }
+  }
+
+  .user-modal-form {
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.125rem;
+  }
+
+  .form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+
+    .label-with-hint {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+
+      .readonly-badge {
+        font-size: 0.6875rem;
+        color: $color-text-subtle;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+    }
+
+    .form-label {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: $brand-dark-text;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 0.55rem 0.8125rem;
+      border: 1px solid #D1D5DB;
+      border-radius: $radius-xs;
+      background-color: $brand-white;
+      color: $brand-dark-text;
+      font-size: 0.875rem;
+      transition: border-color $transition-fast, box-shadow $transition-fast;
+
+      &::placeholder {
+        color: rgba($brand-dark-text, 0.35);
+      }
+
+      &:focus {
+        outline: none;
+        border-color: $brand-accent-blue;
+        box-shadow: 0 0 0 2px rgba($brand-accent-blue, 0.15);
+      }
+
+      &--error {
+        border-color: #991B1B;
+      }
+
+      &--readonly, &:disabled {
+        background-color: $brand-neutral-bg;
+        color: $color-text-muted;
+        cursor: not-allowed;
+        border-color: $brand-light-neutral;
+      }
+    }
+
+    .password-input-group {
+      position: relative;
+      display: flex;
+      align-items: center;
+
+      .form-input {
+        padding-right: 2.75rem;
+      }
+
+      .password-peek-trigger {
+        position: absolute;
+        right: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        color: $color-text-muted;
+        border-radius: $radius-xs;
+
+        &:hover {
+          color: $brand-black;
+          background-color: $brand-light-neutral;
+        }
+      }
+    }
+
+    .field-error-hint {
+      font-size: 0.75rem;
+      color: #991B1B;
+      font-weight: 500;
+      margin-top: 2px;
+    }
+  }
+
+  .form-select {
+    width: 100%;
+    padding: 0.55rem 0.8125rem;
+    border: 1px solid #D1D5DB;
+    border-radius: $radius-xs;
+    background-color: $brand-white;
+    color: $brand-dark-text;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: border-color $transition-fast;
+
+    &:focus {
+      outline: none;
+      border-color: $brand-accent-blue;
+      box-shadow: 0 0 0 2px rgba($brand-accent-blue, 0.15);
+    }
+  }
+
+  .user-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.625rem;
+    padding-top: 1.125rem;
+    border-top: 1px solid $brand-light-neutral;
+    margin-top: 0.25rem;
+  }
+}
+
+@keyframes modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

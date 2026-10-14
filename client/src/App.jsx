@@ -1,115 +1,68 @@
-import { useState, useEffect } from 'react';
+import React from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext.jsx';
+import { RouterProvider, useRouter } from './context/RouterContext.jsx';
+import { LoginPage } from './pages/LoginPage.jsx';
+import { DashboardPage } from './pages/DashboardPage.jsx';
+import { UsersPage } from './pages/UsersPage.jsx';
+import { AppLayout } from './components/layout/AppLayout.jsx';
+import { LoadingState } from './components/common/LoadingState.jsx';
 import './App.scss';
 
-function App() {
-  const [healthStatus, setHealthStatus] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'
-  const [healthData, setHealthData] = useState(null);
-  const [errorMessage, setErrorMessage] = useState('');
+function AppContent() {
+  const { user, loading, isAdmin } = useAuth();
+  const { currentPath, navigate } = useRouter();
 
-  const apiUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+  if (loading) {
+    return (
+      <div className="app-loader-container">
+        <div className="loader-brand">
+          <div className="loader-monogram-badge" aria-hidden="true">DA</div>
+          <h1 className="brand-wordmark">DOON ANANDAM</h1>
+          <span className="brand-tagline">CRM PLATFORM</span>
+        </div>
+        <LoadingState message="Verifying secure CRM session..." />
+      </div>
+    );
+  }
 
-  const checkHealth = async () => {
-    setHealthStatus('loading');
-    setErrorMessage('');
-    try {
-      const response = await fetch(`${apiUrl}/health`);
-      if (!response.ok) {
-        throw new Error(`Server returned HTTP ${response.status}`);
-      }
-      const data = await response.json();
-      setHealthData(data);
-      setHealthStatus('success');
-    } catch (err) {
-      setHealthStatus('error');
-      setErrorMessage(err.message || 'Failed to reach API server');
-      setHealthData(null);
+  // Unauthenticated user -> render Login Page
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  // Route matching for authenticated session
+  if (currentPath === '/users') {
+    if (!isAdmin) {
+      // Non-admin attempted to visit /users -> redirect to dashboard
+      navigate('/dashboard');
+      return (
+        <AppLayout title="Dashboard">
+          <DashboardPage />
+        </AppLayout>
+      );
     }
-  };
+    return (
+      <AppLayout title="User Management">
+        <UsersPage />
+      </AppLayout>
+    );
+  }
 
-  useEffect(() => {
-    checkHealth();
-  }, []);
-
+  // Default route: Dashboard
   return (
-    <div className="app-container">
-      <header className="hero">
-        <span className="badge">Foundation Setup Phase</span>
-        <h1 className="title">Doon Anandam CRM</h1>
-        <p className="subtitle">
-          Enterprise Customer Relationship Management foundation scaffolded for scalability and production readiness.
-        </p>
-      </header>
+    <AppLayout title="Dashboard">
+      <DashboardPage />
+    </AppLayout>
+  );
+}
 
-      <section className="cards-grid">
-        <div className="card">
-          <div className="card-header">
-            <span className="card-icon">⚡</span>
-            <h3>Frontend</h3>
-          </div>
-          <p>React 18 + Vite with SCSS styling, modern tokens, and fast HMR development server.</p>
-          <span className="pill">Port: 5173</span>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <span className="card-icon">🛡️</span>
-            <h3>Backend</h3>
-          </div>
-          <p>Node.js &amp; Express using native ES Modules, Helmet security, CORS, and rate limiting.</p>
-          <span className="pill">Port: 5000</span>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <span className="card-icon">🗄️</span>
-            <h3>Database</h3>
-          </div>
-          <p>MongoDB with Mongoose ODM (Architecture ready, connection deferred to next phase).</p>
-          <span className="pill">MongoDB Atlas</span>
-        </div>
-      </section>
-
-      <section className="health-panel">
-        <div className="health-header">
-          <h2>Backend Health Check</h2>
-          <button
-            className="check-btn"
-            onClick={checkHealth}
-            disabled={healthStatus === 'loading'}
-          >
-            {healthStatus === 'loading' ? 'Checking...' : 'Re-check Status'}
-          </button>
-        </div>
-
-        {healthStatus === 'loading' && (
-          <div className="status-box loading">
-            <div className="status-title">⏳ Connecting to Backend...</div>
-            <p className="status-detail">Querying {apiUrl}/health</p>
-          </div>
-        )}
-
-        {healthStatus === 'success' && (
-          <div className="status-box success">
-            <div className="status-title">✅ API Server Connected</div>
-            <p className="status-detail">Endpoint responded successfully with status 200 OK.</p>
-            <pre>{JSON.stringify(healthData, null, 2)}</pre>
-          </div>
-        )}
-
-        {healthStatus === 'error' && (
-          <div className="status-box error">
-            <div className="status-title">⚠️ API Server Unreachable</div>
-            <p className="status-detail">
-              {errorMessage}. Ensure the Express server is running on port 5000 (<code>cd server && npm run dev</code>).
-            </p>
-          </div>
-        )}
-      </section>
-
-      <footer className="footer">
-        Doon Anandam CRM &copy; {new Date().getFullYear()} &bull; Foundation Phase Active
-      </footer>
-    </div>
+function App() {
+  return (
+    <RouterProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </RouterProvider>
   );
 }
 
