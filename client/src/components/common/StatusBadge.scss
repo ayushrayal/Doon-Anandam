@@ -56,4 +56,61 @@
     border: 1px solid rgba($brand-dark-text, 0.12);
     font-weight: 500;
   }
+
+  // Lead Lifecycle Status Badges (Strict Brand Palette)
+  &--lead-new {
+    background-color: rgba($brand-accent-blue, 0.08);
+    color: $brand-navy;
+    border: 1px solid rgba($brand-accent-blue, 0.28);
+    font-weight: 600;
+
+    .status-badge__dot {
+      background-color: $brand-accent-blue;
+    }
+  }
+
+  &--lead-contacted {
+    background-color: rgba($brand-navy, 0.07);
+    color: $brand-navy;
+    border: 1px solid rgba($brand-navy, 0.22);
+    font-weight: 500;
+
+    .status-badge__dot {
+      background-color: $brand-navy;
+    }
+  }
+
+  &--lead-qualified {
+    background-color: $brand-navy;
+    color: $brand-white;
+    border: 1px solid $brand-navy;
+    font-weight: 600;
+
+    .status-badge__dot {
+      background-color: $brand-accent-blue;
+    }
+  }
+
+  &--lead-converted {
+    background-color: rgba($brand-accent-blue, 0.15);
+    color: #005bb5;
+    border: 1px solid rgba($brand-accent-blue, 0.45);
+    font-weight: 700;
+
+    .status-badge__dot {
+      background-color: $brand-accent-blue;
+    }
+  }
+
+  &--lead-lost {
+    background-color: $brand-light-neutral;
+    color: rgba($brand-dark-text, 0.6);
+    border: 1px solid rgba($brand-dark-text, 0.14);
+    font-weight: 500;
+
+    .status-badge__dot {
+      background-color: rgba($brand-dark-text, 0.35);
+    }
+  }
 }
+

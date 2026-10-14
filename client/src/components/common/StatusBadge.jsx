@@ -21,5 +21,24 @@ export function StatusBadge({ type, value }) {
     );
   }
 
+  if (type === 'leadStatus') {
+    const statusKey = (value || 'new').toLowerCase();
+    const statusLabels = {
+      new: 'New Lead',
+      contacted: 'Contacted',
+      qualified: 'Qualified',
+      converted: 'Converted',
+      lost: 'Lost',
+    };
+    const label = statusLabels[statusKey] || statusKey;
+
+    return (
+      <span className={`status-badge status-badge--lead-${statusKey}`}>
+        <span className="status-badge__dot" aria-hidden="true" />
+        <span className="status-badge__text">{label}</span>
+      </span>
+    );
+  }
+
   return <span className="status-badge">{value}</span>;
 }

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useRouter } from '../../context/RouterContext.jsx';
-import { IconDashboard, IconUsers, IconBuilding, IconClose } from '../common/Icons.jsx';
+import { IconDashboard, IconUsers, IconBuilding, IconClose, IconLeads } from '../common/Icons.jsx';
 import './Sidebar.scss';
 
 export function Sidebar({ isOpen, onClose }) {
@@ -49,6 +49,16 @@ export function Sidebar({ isOpen, onClose }) {
             <span className="nav-item__indicator" aria-hidden="true" />
             <IconDashboard size={18} className="nav-item__icon" />
             <span className="nav-item__label">Dashboard</span>
+          </button>
+
+          <button
+            type="button"
+            className={`nav-item ${currentPath === '/leads' ? 'nav-item--active' : ''}`}
+            onClick={() => handleNav('/leads')}
+          >
+            <span className="nav-item__indicator" aria-hidden="true" />
+            <IconLeads size={18} className="nav-item__icon" />
+            <span className="nav-item__label">Leads</span>
           </button>
 
           {isAdmin && (

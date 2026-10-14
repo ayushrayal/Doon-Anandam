@@ -4,6 +4,7 @@ import { RouterProvider, useRouter } from './context/RouterContext.jsx';
 import { LoginPage } from './pages/LoginPage.jsx';
 import { DashboardPage } from './pages/DashboardPage.jsx';
 import { UsersPage } from './pages/UsersPage.jsx';
+import { LeadsPage } from './pages/LeadsPage.jsx';
 import { AppLayout } from './components/layout/AppLayout.jsx';
 import { LoadingState } from './components/common/LoadingState.jsx';
 import './App.scss';
@@ -30,7 +31,16 @@ function AppContent() {
     return <LoginPage />;
   }
 
-  // Route matching for authenticated session
+  // Route: Leads Management (Accessible to Admin & Sales Executive)
+  if (currentPath === '/leads') {
+    return (
+      <AppLayout title="Lead Management">
+        <LeadsPage />
+      </AppLayout>
+    );
+  }
+
+  // Route: User Management (Admin only)
   if (currentPath === '/users') {
     if (!isAdmin) {
       // Non-admin attempted to visit /users -> redirect to dashboard

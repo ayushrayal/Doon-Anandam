@@ -19,171 +19,107 @@
 - [x] **Phase 3: Premium Frontend & Admin User Management** *(Completed & Verified)*
 - [x] **Phase 4 (Renumbered as Phase 5): Secure Windsor.ai Integration & Lead Ingestion** *(Completed & Verified - Backend Only)*
 - [x] **Phase 6: Secure Lead Management API** *(Completed & Verified - Backend Only)*
-- [ ] **Phase 7: Lead Management & Pipeline Tracking UI** *(Upcoming - Frontend)*
+- [x] **Phase 7: Premium Lead Management UI** *(Completed & Verified - Frontend)*
 - [ ] **Phase 8: Advanced Analytics & Operational Reporting** *(Upcoming)*
 - [ ] **Phase 9: Production Hardening & Render/Atlas Deployment** *(Upcoming)*
 
 ---
 
 ## 3. Current Phase & Status
-- **Current Phase**: **Phase 6: Secure Lead Management API**
-- **Status**: **Completed & Verified** (All 33 Lead Management API tests passing, 36 backend regression tests passing, client builds with 0 errors)
+- **Current Phase**: **Phase 7: Premium Lead Management UI**
+- **Status**: **Completed & Verified** (Frontend builds cleanly with 0 errors/warnings, all 33 Phase 6 Lead Management API tests passing, 36 backend regression tests passing)
 
 ---
 
-## 4. Phase 6 Implementation Details: Lead Management API
+## 4. Phase 7 Implementation Details: Premium Lead Management UI
 
-### 4.1 Architecture & Security Standards
-1. **Authentication & RBAC**:
-   - Gated behind existing `authenticate` middleware (HttpOnly JWT cookie).
-   - Strict role scoping:
-     - **Sales Executives**: Can strictly view and update status ONLY for leads assigned to their user ID (`assignedTo === req.user._id`). Unassigned leads and leads assigned to other representatives return `404 Not Found` to prevent data leakage and enumeration. Sales executives cannot assign leads (`403 Forbidden`).
-     - **Administrators**: Full visibility across all leads within the connected business account; exclusive access to lead assignment and upstream manual sync.
-2. **Account Isolation**:
-   - All lead queries and mutations enforce `accountId: env.WINDSOR_ACCOUNT_ID` scoping.
-   - Prevents cross-tenant or foreign test account leaks (e.g. testing with `OFFICESPAZE.com` account vs production).
-3. **CSRF & Origin Protection**:
-   - State-changing mutations (`PATCH /api/leads/:id/status`, `PATCH /api/leads/:id/assign`) are protected by `verifyOrigin` middleware and cookie-origin verification.
-4. **Validation & Caps**:
-   - Request bodies validated with Zod schemas.
-   - Safe pagination limits enforced (maximum 50 items per page; default 10).
-   - Regex escaping on search strings to prevent ReDoS.
-   - Natural case-insensitive alphabetical sorting via MongoDB collation (`{ locale: 'en' }`).
-5. **Privacy & Sanitization**:
-   - No PII, customer contact credentials, internal password hashes, or `__v` exposed in unauthorized scopes or logs.
+### 4.1 Architecture & Components
+1. **Dedicated Leads Workspace (`client/src/pages/LeadsPage.jsx` & `LeadsPage.scss`)**:
+   - Integrated into the existing authenticated application layout (`AppLayout`).
+   - Accessible via client router on `/leads` to both Administrators and Sales Executives.
+   - Header with active prospect count badge, refresh action, and Admin-only Windsor manual sync trigger.
+   - Debounced search bar (300ms) with instant clear action.
+   - Multi-filter controls:
+     - Pipeline Stage (`all`, `new`, `contacted`, `qualified`, `converted`, `lost`).
+     - Assignment filter (Admin only: `all`, `unassigned`, or specific active representative).
+     - Ingestion / Date range filter (`all`, `today`, `7d`, `30d`).
+     - Safe sorting dropdown (`createdAt`, `leadCreatedAt`, `fullName`, `status`) with ascending/descending direction.
+     - Reset Filters action button displayed when any filter is active.
+   - Enterprise Data Table:
+     - Prospect Details (Full Name, Account/Scope).
+     - Contact Channels (Phone with `tel:` link, Email with `mailto:` link, formatted copy triggers).
+     - Marketing Attribution (Campaign Name, Instant Form Name).
+     - Pipeline Stage (`StatusBadge type="leadStatus"`).
+     - Assigned Executive (Avatar chip, rep name, role tag, or "Unassigned" pill).
+     - Ingestion date with localized timestamp.
+     - Details action button.
+   - Verified Pagination Bar:
+     - Range count indicator (`Showing X–Y of Z leads`).
+     - Limit selector (`10`, `25`, `50` per page).
+     - Accessible Previous and Next page controls.
+   - State Handling:
+     - Loading skeleton/spinner.
+     - Descriptive Empty State with Reset Filters or Sync actions.
+     - Error state with Retry action.
+     - Request sequence tracker (`activeFetchIdRef`) preventing stale asynchronous responses from overwriting newer user filters.
 
----
+2. **Lead Details Slide-Over Drawer (`client/src/components/leads/LeadDrawer.jsx` & `LeadDrawer.scss`)**:
+   - Slide-over panel accessible by clicking any table row or the "Details" action.
+   - Slide animation with blurred backdrop and ESC key listener.
+   - **Pipeline Lifecycle Stage Controller**:
+     - Current status badge.
+     - Allowed next stage action buttons strictly derived from `ALLOWED_STATUS_TRANSITIONS`.
+     - Loading indicators and clear success/error banners displaying backend validation feedback.
+     - Automatically refreshes table row upon state transition.
+   - **Sales Representative Assignment Controller (Admin Only)**:
+     - Displays current assigned executive.
+     - Dropdown populated with verified active team members (`GET /api/users?isActive=true`).
+     - Allows assigning to any active rep or unassigning (`assignedTo: null`).
+     - Rejection feedback handling (e.g. deactivated users).
+   - **Direct Contact Card**:
+     - Click-to-call phone number and click-to-email link.
+     - One-click copy buttons with temporary checkmark feedback.
+   - **Marketing & Campaign Attribution Card**:
+     - Campaign Name, Campaign ID, Ad Set, Ad Creative, Instant Form Name, Upstream Lead Timestamp.
+   - **Internal Remarks Card**:
+     - Operational CRM notes and remarks.
+   - **Audit & Traceability Card**:
+     - External Lead ID, Connected Account ID/Name, System Ingestion Date, and Last Modified Date.
 
-### 4.2 API Endpoint Contracts
+3. **Brand Styling & Design System (`client/src/styles/_variables.scss`)**:
+   - Strictly anchored to official Doon Anandam brand palette:
+     - Primary Navy: `#1A2C50`
+     - Accent Blue: `#007EFF`
+     - Charcoal Dark Text: `#212529`
+     - Light Neutral: `#F0F0F0`
+     - Neutral Background: `#F8F9FA`
+     - Surface White: `#FFFFFF`
+   - Custom zero-dependency SVG icon system extended in `client/src/components/common/Icons.jsx`:
+     - `IconLeads`, `IconRefresh`, `IconPhone`, `IconMail`, `IconCalendar`, `IconChevronLeft`, `IconChevronRight`, `IconChevronDown`, `IconCopy`, `IconCheck`, `IconUserCheck`, `IconExternalLink`, `IconInfo`.
+   - `StatusBadge` extended to support `type="leadStatus"` for `new`, `contacted`, `qualified`, `converted`, and `lost`.
 
-#### 1. Lead Listing — `GET /api/leads`
-- **Permissions**: Authenticated (`admin` or `sales_executive`).
-- **Query Parameters**:
-  - `page` (integer $\ge 1$, default: `1`)
-  - `limit` (integer $1..50$, default: `10`)
-  - `status` (`new`, `contacted`, `qualified`, `lost`, `converted`, or `all`; default: `all`)
-  - `assignedTo` (Admin only: valid 24-hex ObjectId string, or `'unassigned'`)
-  - `source` (string, e.g. `'facebook_leads'`)
-  - `search` (string, max 100 chars; searches `fullName`, `email`, `phoneNumber`, `campaignName`)
-  - `startDate` (ISO date string; filters `leadCreatedAt >= startDate`)
-  - `endDate` (ISO date string; filters `leadCreatedAt <= endDate`)
-  - `sortBy` (`createdAt`, `leadCreatedAt`, `fullName`, `status`; default: `'createdAt'`)
-  - `sortOrder` (`asc` or `desc`; default: `'desc'`)
-- **Success Response (HTTP 200)**:
-```json
-{
-  "success": true,
-  "leads": [
-    {
-      "_id": "67f6...",
-      "externalLeadId": "100234567890123",
-      "source": "facebook_leads",
-      "accountId": "754258214430492",
-      "accountName": "OFFICESPAZE.com",
-      "fullName": "Aarav Sharma",
-      "email": "aarav.sharma@example.com",
-      "phoneNumber": "+919876543210",
-      "formId": "form_123",
-      "formName": "Contact Form",
-      "campaignName": "Luxury Villas Launch",
-      "campaignId": "camp_101",
-      "adsetName": "Dehradun High Net Worth",
-      "adName": "Villa Ad 1",
-      "leadCreatedAt": "2026-03-01T10:00:00.000Z",
-      "status": "new",
-      "assignedTo": {
-        "_id": "67f1...",
-        "name": "Rajesh Kumar",
-        "email": "rajesh@doonanandam.com",
-        "role": "sales_executive"
-      },
-      "notes": "Interested in 4BHK villa",
-      "createdAt": "2026-03-01T10:05:00.000Z",
-      "updatedAt": "2026-03-01T10:05:00.000Z"
-    }
-  ],
-  "pagination": {
-    "page": 1,
-    "limit": 10,
-    "total": 37,
-    "totalPages": 4
-  },
-  "page": 1,
-  "limit": 10,
-  "total": 37,
-  "totalPages": 4
-}
-```
-
-#### 2. Lead Details — `GET /api/leads/:id`
-- **Permissions**: Authenticated.
-  - `admin`: Any lead within the account.
-  - `sales_executive`: Only leads assigned to the authenticated user.
-- **Path Parameter**: `id` (24-character hexadecimal MongoDB ObjectId).
-- **Responses**:
-  - `200 OK`: Returns `{ success: true, lead: { ... } }` with approved CRM fields and populated `assignedTo`.
-  - `400 Bad Request`: When `id` is not a valid 24-hex ObjectId string (`{ "success": false, "message": "Invalid lead ID format." }`).
-  - `404 Not Found`: When lead does not exist, belongs to another account, or is not assigned to the requesting sales executive.
-
-#### 3. Lead Status Update — `PATCH /api/leads/:id/status`
-- **Permissions**: Authenticated.
-  - `admin`: Any lead in account.
-  - `sales_executive`: Only assigned lead.
-- **Request Body**:
-```json
-{
-  "status": "contacted"
-}
-```
-- **Allowed CRM Lifecycle Transitions**:
-  - `new` $\rightarrow$ `['contacted', 'qualified', 'lost']`
-  - `contacted` $\rightarrow$ `['qualified', 'lost', 'new']`
-  - `qualified` $\rightarrow$ `['converted', 'lost', 'contacted']`
-  - `lost` $\rightarrow$ `['contacted', 'qualified', 'new']`
-  - `converted` $\rightarrow$ `['qualified']`
-  - Target status equal to current status is treated as an idempotent no-op (`200 OK`).
-- **Responses**:
-  - `200 OK`: Returns updated lead record with populated `assignedTo`.
-  - `400 Bad Request`: Disallowed lifecycle jump (e.g. `new` $\rightarrow$ `converted`) or unrecognized status value.
-  - `404 Not Found`: Lead does not exist or outside user's authorized scope.
-
-#### 4. Lead Assignment — `PATCH /api/leads/:id/assign`
-- **Permissions**: Administrator only (`authorize(['admin'])`). Sales executives receive `403 Forbidden`.
-- **Request Body**:
-```json
-{
-  "assignedTo": "67f1a2b3c4d5e6f7a8b9c0d1"
-}
-```
-*(Or `null` to unassign the lead)*
-```json
-{
-  "assignedTo": null
-}
-```
-- **Validation Rules**:
-  - Target user must exist in database.
-  - Target user must be active (`isActive: true`). Deactivated users are rejected with `400 Bad Request`.
-  - Target user role must be `sales_executive` or `admin`.
-- **Responses**:
-  - `200 OK`: Returns updated lead with populated `assignedTo`.
-  - `400 Bad Request`: Deactivated user, non-existent user, or invalid user ID.
-  - `403 Forbidden`: Non-admin access attempt.
-  - `404 Not Found`: Lead not found.
+4. **Navigation & Dashboard Linking**:
+   - `Sidebar.jsx`: Added Leads navigation item with `IconLeads` for all authenticated users.
+   - `DashboardPage.jsx`: Added "Lead Pipeline" primary button in the executive header and an "Open Lead Pipeline" action in the Sales Representative Workspace portal.
 
 ---
 
-## 5. Files Created or Changed in Phase 6
+## 5. Files Created or Changed in Phase 7
 
-### Backend (`server/`)
-- `server/src/schemas/lead.schema.js` — **Created**: Zod schemas for query validation (`leadQuerySchema`), status update (`updateLeadStatusSchema`), assignment (`assignLeadSchema`), and lifecycle graph (`ALLOWED_STATUS_TRANSITIONS`).
-- `server/src/middleware/validate.js` — **Modified**: Added `validateQuery` middleware for parsing and coercing query parameters with Zod.
-- `server/src/controllers/lead.controller.js` — **Modified**: Added `getLeads`, `getLeadById`, `updateLeadStatus`, and `assignLead` with account isolation, role scoping, safe sorting, and lifecycle enforcement.
-- `server/src/routes/lead.routes.js` — **Modified**: Mounted Phase 6 endpoints (`GET /`, `GET /:id`, `PATCH /:id/status`, `PATCH /:id/assign`) with `authenticate`, `authorize`, `verifyOrigin`, and validation middlewares.
-- `server/scripts/testLeadManagement.js` — **Created**: Comprehensive 33-test automated suite for all Phase 6 lead management operations.
+### Frontend (`client/`)
+- `client/src/components/common/Icons.jsx` — **Modified**: Added CRM icons (`IconLeads`, `IconRefresh`, `IconPhone`, `IconMail`, `IconChevronLeft`, `IconChevronRight`, `IconChevronDown`, `IconCopy`, `IconCheck`, `IconUserCheck`, `IconExternalLink`, `IconInfo`).
+- `client/src/components/common/StatusBadge.jsx` — **Modified**: Added `type="leadStatus"` mapping and labels for `new`, `contacted`, `qualified`, `converted`, and `lost`.
+- `client/src/components/common/StatusBadge.scss` — **Modified**: Added brand-compliant styling for all lead status badges.
+- `client/src/components/layout/Sidebar.jsx` — **Modified**: Added Leads workspace navigation link for both Admins and Sales Executives.
+- `client/src/components/leads/LeadDrawer.jsx` — **Created**: Slide-over panel for lead inspection, lifecycle transitions, and admin assignment.
+- `client/src/components/leads/LeadDrawer.scss` — **Created**: Styling for the slide-over drawer, transitions buttons, contact cards, and attribution grid.
+- `client/src/pages/LeadsPage.jsx` — **Created**: Comprehensive Leads pipeline view with debounced search, multi-filters, safe sorting, responsive table, pagination, and drawer integration.
+- `client/src/pages/LeadsPage.scss` — **Created**: High-density styling for toolbar, data table, assignee chips, and pagination controls.
+- `client/src/pages/DashboardPage.jsx` — **Modified**: Added direct shortcut buttons to Lead Pipeline for both Admins and Sales Executives.
+- `client/src/App.jsx` — **Modified**: Added client routing for `/leads` route.
 
 ### Documentation
-- `docs/phase.md` — **Modified**: Reconciled roadmap, documented Phase 6 endpoints, status transitions, RBAC permissions, and test verification logs.
+- `docs/phase.md` — **Modified**: Updated roadmap, Phase 7 implementation details, component specifications, and verification results.
 
 ---
 
@@ -191,82 +127,51 @@
 
 | Test Suite / Command | Execution Command | Result | Status |
 | :--- | :--- | :--- | :--- |
+| **Frontend Production Build** | `npm run build` in `client/` | 59 modules transformed; built to `dist/` with 0 warnings/errors | **Passed** |
 | **Phase 6 Lead Management Suite (33 tests)** | `node scripts/testLeadManagement.js` | All 33 tests passed (Auth, CSRF, Account Isolation, Role Scoping, Pagination, Search, Safe Sorting, Details, Status Lifecycle, Assignment) | **Passed** |
 | **Phase 5 Windsor Sync Regression Suite (12 tests)** | `node scripts/testWindsorSync.js` | All 12 tests passed (URL building, deduplication, field preservation, RBAC, timeouts) | **Passed** |
 | **User Management Regression Suite (11 tests)** | `node scripts/testUsers.js` | All 11 tests passed (Admin RBAC, CRUD, deactivation lockout guard) | **Passed** |
 | **Auth Regression Suite (13 tests)** | `node scripts/testAuth.js` | All 13 tests passed (Cookie sessions, /me guards, rate limiting) | **Passed** |
-| **Frontend Production Build** | `npm run build` in `client/` | 55 modules transformed; built to `dist/` with 0 errors | **Passed** |
 
 ---
 
-## 7. Manual Postman / cURL Verification Guide
+## 7. Manual Browser Verification Guide
 
-To test the Phase 6 APIs via Postman or cURL against local dev backend (`http://localhost:5000`):
-
-### 1. Authenticate as Admin
-- **Method**: `POST`
-- **URL**: `http://localhost:5000/api/auth/login`
-- **Headers**: `Content-Type: application/json`
-- **Body**:
-  ```json
-  {
-    "email": "<admin_email>",
-    "password": "<admin_password>"
-  }
-  ```
-- **Check**: Cookie `da_session` received.
-
-### 2. List Leads with Filters and Pagination
-- **Method**: `GET`
-- **URL**: `http://localhost:5000/api/leads?page=1&limit=10&status=new&sortBy=createdAt&sortOrder=desc`
-- **Check**: HTTP 200 with `leads` array, `pagination: { page, limit, total, totalPages }`.
-
-### 3. Search Leads
-- **Method**: `GET`
-- **URL**: `http://localhost:5000/api/leads?search=Aarav`
-- **Check**: Returns matching leads without regex injection or errors.
-
-### 4. Fetch Lead Details
-- **Method**: `GET`
-- **URL**: `http://localhost:5000/api/leads/<lead_id>`
-- **Check**: HTTP 200 with populated `assignedTo` object and no `passwordHash`.
-- **Negative Check**: `GET http://localhost:5000/api/leads/not-an-id` returns HTTP 400.
-
-### 5. Transition Status
-- **Method**: `PATCH`
-- **URL**: `http://localhost:5000/api/leads/<lead_id>/status`
-- **Headers**: `Content-Type: application/json`, `Origin: http://localhost:5173`
-- **Body**:
-  ```json
-  {
-    "status": "contacted"
-  }
-  ```
-- **Check**: HTTP 200 with updated status.
-- **Negative Check**: Attempting `new` $\rightarrow$ `converted` returns HTTP 400 with allowed transitions listed.
-
-### 6. Assign Lead
-- **Method**: `PATCH`
-- **URL**: `http://localhost:5000/api/leads/<lead_id>/assign`
-- **Headers**: `Content-Type: application/json`, `Origin: http://localhost:5173`
-- **Body**:
-  ```json
-  {
-    "assignedTo": "<sales_executive_user_id>"
-  }
-  ```
-- **Check**: HTTP 200 with updated `assignedTo`.
-- **Unassign Check**: Sending `{"assignedTo": null}` unassigns the lead.
-
-### 7. Sales Executive Isolation Check
-- Login as a `sales_executive` user.
-- Call `GET /api/leads`. Verify response returns *strictly* leads assigned to this user.
-- Attempt calling `PATCH /api/leads/<lead_id>/assign`. Verify response returns HTTP 403 Forbidden.
+1. **Accessing Leads Page**:
+   - Navigate to `http://localhost:5173/` and log in with your admin or sales executive credentials.
+   - Click "Leads" in the left sidebar or the "Lead Pipeline" button on the Dashboard.
+   - Verify that real leads from MongoDB are rendered in the table with prospect name, phone, email, campaign, status badge, assignee chip, and date.
+2. **Search & Debouncing**:
+   - Type in the search box (e.g., `Aarav` or a phone number fragment).
+   - Notice the 300ms debounce and automatic reset to page 1.
+   - Click the (X) clear button to restore full listing.
+3. **Filtering**:
+   - Change Status filter to "Contacted", "Qualified", or "New". Verify the table immediately updates.
+   - Change Date filter to "Last 7 Days" or "Last 30 Days".
+   - (As Admin) Change Assignment filter to "Unassigned Only" or a specific user.
+   - Click "Reset Filters" to return to default view.
+4. **Lead Details Drawer**:
+   - Click on any lead row in the table.
+   - Verify the drawer smoothly slides in from the right with full contact info, attribution, and notes.
+   - Press `Escape` key or click outside to close the drawer.
+5. **Lifecycle Stage Transition**:
+   - Open a lead with status "New".
+   - In the "Pipeline Lifecycle Stage" card, observe the permitted transition buttons (`Move to Contacted`, `Move to Qualified`, `Move to Lost`).
+   - Click `Move to Contacted`. Observe the loading state and success confirmation.
+   - Close drawer and verify the status badge on the main table reflects "Contacted".
+6. **Assignment (Admin only)**:
+   - In the drawer, change the "Assigned To" dropdown to an active sales representative.
+   - Verify success confirmation and immediate assignee chip update in both drawer and main table.
+   - Change back to "Unassigned" to verify unassignment.
+7. **Sales Executive Role Verification**:
+   - Log in as a sales executive.
+   - Verify only leads assigned to this rep are displayed.
+   - Verify that the Assignment controls are hidden in the Lead Details drawer.
 
 ---
 
 ## 8. Exact Next Step
-- **Phase 7: Lead Management & Pipeline Tracking UI**:
-  - Build responsive Lead Directory view with status filters, search bar, and assignment chips.
-  - Implement interactive Kanban / Pipeline stage board (`new` $\rightarrow$ `contacted` $\rightarrow$ `qualified` $\rightarrow$ `converted` / `lost`).
-  - Add Quick Assign and Status Transition action modals for sales reps and admins.
+- **Phase 8: Advanced Analytics & Operational Reporting**:
+  - Build aggregated pipeline velocity metrics (conversion rates, lead-to-contact time).
+  - Implement visual funnel analytics and executive charts.
+  - Create exportable CSV/PDF operational reports for management.

@@ -59,8 +59,16 @@ export function DashboardPage() {
           </p>
         </div>
 
-        {isAdmin && (
-          <div className="dashboard-header-actions">
+        <div className="dashboard-header-actions">
+          <button
+            type="button"
+            className="btn btn--primary btn--sm"
+            onClick={() => navigate('/leads')}
+          >
+            <span>Lead Pipeline</span>
+            <IconArrowRight size={13} />
+          </button>
+          {isAdmin && (
             <button
               type="button"
               className="btn btn--secondary btn--sm"
@@ -69,8 +77,8 @@ export function DashboardPage() {
               <span>Employee Directory</span>
               <IconArrowRight size={13} />
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
       {loading ? (
@@ -143,12 +151,21 @@ export function DashboardPage() {
                 <IconShield size={24} />
               </div>
               <div className="sales-overview-content">
-                <h3 className="sales-overview-title">Sales Representative Portal</h3>
+                <h3 className="sales-overview-title">Sales Representative Workspace</h3>
                 <p className="sales-overview-text">
-                  Your account is authorized with sales representative permissions. Access to lead pipeline,
-                  client contacts, and deal stages will activate in Phase 4.
+                  Your account is authorized with sales representative permissions. You have active access to your assigned lead pipeline, client contact details, and lifecycle stage updates.
                 </p>
-                <div className="sales-overview-meta">
+                <div style={{ marginTop: '0.875rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm"
+                    onClick={() => navigate('/leads')}
+                  >
+                    <span>Open Lead Pipeline</span>
+                    <IconArrowRight size={13} />
+                  </button>
+                </div>
+                <div className="sales-overview-meta" style={{ marginTop: '0.875rem' }}>
                   <span>Logged in as: <strong>{user?.email}</strong></span>
                   <span>Role: <strong>Sales Executive</strong></span>
                 </div>
