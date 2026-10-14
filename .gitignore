@@ -47,13 +47,17 @@ logs/
 **/logs/
 *.log
 
-# Editor and OS local files
+# Editor, agent, and OS local files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+.agents/
+.gemini/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.tmp
+*.temp

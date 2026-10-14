@@ -6,164 +6,267 @@
 - **Frontend**: React 18, Vite, JavaScript, SCSS (`sass-embedded`)
 - **Backend**: Node.js, Express.js (native ES Modules)
 - **Database**: MongoDB Atlas + Mongoose
-- **Security & Middlewares**: Helmet, CORS, Express Rate Limit, Cookie Parser, Zod, Dotenv, Bcryptjs, JsonWebToken
-- **API Testing**: Postman / cURL / PowerShell REST client
+- **Security & Middlewares**: Helmet, CORS, Express Rate Limit, Cookie Parser, Zod, Dotenv, Bcryptjs, JsonWebToken, verifyOrigin CSRF protection
+- **API Testing**: Automated test suites (ESM) / Postman / cURL
 - **Deployment Plan**: Render (Frontend & Backend isolated services) + MongoDB Atlas
 
 ---
 
-## 2. Phase Roadmap
+## 2. Reconciled Phase Roadmap
 - [x] **Phase 0: Project Foundation & Scaffolding** *(Completed & Verified)*
 - [x] **Phase 1: MongoDB Connection Foundation & User Model** *(Completed & Verified)*
 - [x] **Phase 2: Secure Authentication & Initial Admin Bootstrap** *(Completed & Verified)*
 - [x] **Phase 3: Premium Frontend & Admin User Management** *(Completed & Verified)*
-- [ ] **Phase 4: Lead Management & Pipeline Tracking**
-- [ ] **Phase 5: Windsor.ai Integration & Marketing Analytics**
-- [ ] **Phase 6: Advanced Analytics & Operational Reporting**
-- [ ] **Phase 7: Production Hardening & Render/Atlas Deployment**
+- [x] **Phase 4 (Renumbered as Phase 5): Secure Windsor.ai Integration & Lead Ingestion** *(Completed & Verified - Backend Only)*
+- [x] **Phase 6: Secure Lead Management API** *(Completed & Verified - Backend Only)*
+- [ ] **Phase 7: Lead Management & Pipeline Tracking UI** *(Upcoming - Frontend)*
+- [ ] **Phase 8: Advanced Analytics & Operational Reporting** *(Upcoming)*
+- [ ] **Phase 9: Production Hardening & Render/Atlas Deployment** *(Upcoming)*
 
 ---
 
 ## 3. Current Phase & Status
-- **Current Phase**: Phase 3: Premium Frontend & Admin User Management
-- **Status**: Completed & Verified (All 24 automated backend tests passing, frontend builds cleanly)
+- **Current Phase**: **Phase 6: Secure Lead Management API**
+- **Status**: **Completed & Verified** (All 33 Lead Management API tests passing, 36 backend regression tests passing, client builds with 0 errors)
 
 ---
 
-## 4. Completed Tasks
+## 4. Phase 6 Implementation Details: Lead Management API
 
-### Frontend Architecture & Design System
-- [x] **Strict 6-Color Brand Design System**:
-  - Implemented SCSS tokens in `client/src/styles/_variables.scss` restricted exclusively to the approved palette: Black (`#000000`), Navy (`#1A2C50`), Light Grey (`#F0F0F0`), Off White (`#F8F9FA`), Electric Blue (`#007EFF`), Charcoal (`#212529`), and Surface White (`#FFFFFF`).
-  - Integrated `Inter` clean system sans-serif typography stack in `client/index.html` and `main.scss`.
-- [x] **Premium Login Experience (`client/src/pages/LoginPage.jsx`)**:
-  - Minimal layout with prominent DOON ANANDAM typography wordmark.
-  - Password visibility toggle (show/hide).
-  - Submit loading state with spinner and disabled button while processing.
-  - Inline validation and clear error states.
-  - Generic authentication failure handling (email enumeration protection).
-  - Connects to `POST /api/auth/login` with `credentials: 'include'`.
-- [x] **Reusable Authenticated Application Shell (`client/src/components/layout/`)**:
-  - Responsive Navy sidebar with brand wordmark, active navigation highlight (Electric Blue), and user avatar badge.
-  - Topbar header displaying authenticated employee name, email, role badge, mobile drawer toggle, and logout action.
-  - Navigation gating: User Management link visible strictly to Administrators.
-- [x] **Admin Dashboard (`client/src/pages/DashboardPage.jsx`)**:
-  - Welcome greeting for the authenticated administrator.
-  - Real-time stat cards (Total Users, Active Users, Inactive Users, Sales Executives) backed by live API metrics (`GET /api/users/stats`).
-  - Quick action shortcut to User Management.
-  - Recent user provisionings table with role and status badges.
-- [x] **Full User Management Workflow (`client/src/pages/UsersPage.jsx`)**:
-  - Paginated user list with search across name and email.
-  - Filters by role (`admin`, `sales_executive`) and status (`active`, `inactive`).
-  - Modal workflows: `CreateUserModal` (with password policy) and `EditUserModal`.
-  - Account activation/deactivation toggle guarded by `ConfirmDialog` modal.
-  - Visual indicator tags for the current user's row (`(You)`).
-
-### Phase 3 UI/UX Premium Refinement (Completed & Verified)
-- [x] **Brand Design System Architecture**:
-  - Strictly anchored to official Doon Anandam brand palette: Navy (`#1A2C50`), Accent Blue (`#007EFF`), Black (`#000000`), Neutral BG (`#F8F9FA`), Light Neutral (`#F0F0F0`), Dark Charcoal text (`#212529`), and White (`#FFFFFF`).
-  - Restrained enterprise radii (2px, 4px, 6px), crisp hairline borders (`rgba(33, 37, 41, 0.08)` / `#D1D5DB`), and subtle shadows.
-  - Replaced all emojis with a custom, zero-dependency SVG icon system (`Icons.jsx`).
-  - Replaced browser emoji favicon with a branded SVG crest in `client/index.html`.
-- [x] **Redesigned Split Login Experience (`client/src/pages/LoginPage.jsx` & `.scss`)**:
-  - Two-column enterprise composition: Navy architectural panel with brand monogram "DA", system security notice, and session encryption indicators.
-  - Authentication console with accessible inputs, inline validation, interactive password show/hide eye toggle, and authentication error alert banner.
-  - Fully responsive across desktop, tablet, and mobile breakpoints without stock photos or generic cards.
-- [x] **Executive Admin Dashboard (`client/src/pages/DashboardPage.jsx` & `.scss`)**:
-  - Executive header with live system operational status indicator and dynamic greeting with authenticated user's name.
-  - Real-time operational metrics grid with tabular figures, status dots (active vs inactive), and subtle hover elevation.
-  - High-density Recent Accounts table featuring employee avatar chips, email subtitles, restrained status badges, and direct navigation links.
-  - Dedicated sales executive workspace portal view for non-admin accounts.
-- [x] **Enterprise User Management (`client/src/pages/UsersPage.jsx` & `.scss`)**:
-  - Clean page header with "+ Add Employee" primary action.
-  - Unified directory toolbar combining text search with inline clear action, role dropdown, status dropdown, and filter reset.
-  - High-density employee directory table with proper column alignment, self-account tag `(You)`, and restrained status tags.
-  - Keyboard-accessible pagination bar with clear count indicators.
-  - Modal workflows (`CreateUserModal`, `EditUserModal`) with matching tokens, field hints, and password peek trigger.
-  - Destructive action guard with `ConfirmDialog` warning and self-deactivation protection.
-
-### Backend RBAC & User Management APIs
-- [x] **Role-Based Authorization Middleware (`server/src/middleware/authorize.js`)**:
-  - Enforces `authorize(['admin'])` on all user-management routes; rejects non-admins with `403 Forbidden`.
-- [x] **Zod Request Schemas (`server/src/schemas/user.schema.js`)**:
-  - Validates user creation, user updates, and status toggles.
-- [x] **Endpoints Implemented (`server/src/controllers/user.controller.js`, `server/src/routes/user.routes.js`)**:
-  - `GET /api/users`: Paginated listing with search, filtering, and sorting (`passwordHash` excluded).
-  - `GET /api/users/stats`: Aggregated organizational metrics for the dashboard.
-  - `POST /api/users`: Creates user with bcrypt cost factor 12; prevents duplicate emails with `409 Conflict`.
-  - `PATCH /api/users/:id`: Edits name and role; prevents demoting the last active Administrator.
-  - `PATCH /api/users/:id/status`: Toggles active status; prevents self-deactivation and deactivating the last active Administrator.
-- [x] **Automated Test Suite (`server/scripts/testUsers.js`)**:
-  - 11 automated test cases verifying permissions, validation, CRUD, pagination, and security guards.
+### 4.1 Architecture & Security Standards
+1. **Authentication & RBAC**:
+   - Gated behind existing `authenticate` middleware (HttpOnly JWT cookie).
+   - Strict role scoping:
+     - **Sales Executives**: Can strictly view and update status ONLY for leads assigned to their user ID (`assignedTo === req.user._id`). Unassigned leads and leads assigned to other representatives return `404 Not Found` to prevent data leakage and enumeration. Sales executives cannot assign leads (`403 Forbidden`).
+     - **Administrators**: Full visibility across all leads within the connected business account; exclusive access to lead assignment and upstream manual sync.
+2. **Account Isolation**:
+   - All lead queries and mutations enforce `accountId: env.WINDSOR_ACCOUNT_ID` scoping.
+   - Prevents cross-tenant or foreign test account leaks (e.g. testing with `OFFICESPAZE.com` account vs production).
+3. **CSRF & Origin Protection**:
+   - State-changing mutations (`PATCH /api/leads/:id/status`, `PATCH /api/leads/:id/assign`) are protected by `verifyOrigin` middleware and cookie-origin verification.
+4. **Validation & Caps**:
+   - Request bodies validated with Zod schemas.
+   - Safe pagination limits enforced (maximum 50 items per page; default 10).
+   - Regex escaping on search strings to prevent ReDoS.
+   - Natural case-insensitive alphabetical sorting via MongoDB collation (`{ locale: 'en' }`).
+5. **Privacy & Sanitization**:
+   - No PII, customer contact credentials, internal password hashes, or `__v` exposed in unauthorized scopes or logs.
 
 ---
 
-## 5. Files Created or Changed in Phase 3
+### 4.2 API Endpoint Contracts
+
+#### 1. Lead Listing — `GET /api/leads`
+- **Permissions**: Authenticated (`admin` or `sales_executive`).
+- **Query Parameters**:
+  - `page` (integer $\ge 1$, default: `1`)
+  - `limit` (integer $1..50$, default: `10`)
+  - `status` (`new`, `contacted`, `qualified`, `lost`, `converted`, or `all`; default: `all`)
+  - `assignedTo` (Admin only: valid 24-hex ObjectId string, or `'unassigned'`)
+  - `source` (string, e.g. `'facebook_leads'`)
+  - `search` (string, max 100 chars; searches `fullName`, `email`, `phoneNumber`, `campaignName`)
+  - `startDate` (ISO date string; filters `leadCreatedAt >= startDate`)
+  - `endDate` (ISO date string; filters `leadCreatedAt <= endDate`)
+  - `sortBy` (`createdAt`, `leadCreatedAt`, `fullName`, `status`; default: `'createdAt'`)
+  - `sortOrder` (`asc` or `desc`; default: `'desc'`)
+- **Success Response (HTTP 200)**:
+```json
+{
+  "success": true,
+  "leads": [
+    {
+      "_id": "67f6...",
+      "externalLeadId": "100234567890123",
+      "source": "facebook_leads",
+      "accountId": "754258214430492",
+      "accountName": "OFFICESPAZE.com",
+      "fullName": "Aarav Sharma",
+      "email": "aarav.sharma@example.com",
+      "phoneNumber": "+919876543210",
+      "formId": "form_123",
+      "formName": "Contact Form",
+      "campaignName": "Luxury Villas Launch",
+      "campaignId": "camp_101",
+      "adsetName": "Dehradun High Net Worth",
+      "adName": "Villa Ad 1",
+      "leadCreatedAt": "2026-03-01T10:00:00.000Z",
+      "status": "new",
+      "assignedTo": {
+        "_id": "67f1...",
+        "name": "Rajesh Kumar",
+        "email": "rajesh@doonanandam.com",
+        "role": "sales_executive"
+      },
+      "notes": "Interested in 4BHK villa",
+      "createdAt": "2026-03-01T10:05:00.000Z",
+      "updatedAt": "2026-03-01T10:05:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 37,
+    "totalPages": 4
+  },
+  "page": 1,
+  "limit": 10,
+  "total": 37,
+  "totalPages": 4
+}
+```
+
+#### 2. Lead Details — `GET /api/leads/:id`
+- **Permissions**: Authenticated.
+  - `admin`: Any lead within the account.
+  - `sales_executive`: Only leads assigned to the authenticated user.
+- **Path Parameter**: `id` (24-character hexadecimal MongoDB ObjectId).
+- **Responses**:
+  - `200 OK`: Returns `{ success: true, lead: { ... } }` with approved CRM fields and populated `assignedTo`.
+  - `400 Bad Request`: When `id` is not a valid 24-hex ObjectId string (`{ "success": false, "message": "Invalid lead ID format." }`).
+  - `404 Not Found`: When lead does not exist, belongs to another account, or is not assigned to the requesting sales executive.
+
+#### 3. Lead Status Update — `PATCH /api/leads/:id/status`
+- **Permissions**: Authenticated.
+  - `admin`: Any lead in account.
+  - `sales_executive`: Only assigned lead.
+- **Request Body**:
+```json
+{
+  "status": "contacted"
+}
+```
+- **Allowed CRM Lifecycle Transitions**:
+  - `new` $\rightarrow$ `['contacted', 'qualified', 'lost']`
+  - `contacted` $\rightarrow$ `['qualified', 'lost', 'new']`
+  - `qualified` $\rightarrow$ `['converted', 'lost', 'contacted']`
+  - `lost` $\rightarrow$ `['contacted', 'qualified', 'new']`
+  - `converted` $\rightarrow$ `['qualified']`
+  - Target status equal to current status is treated as an idempotent no-op (`200 OK`).
+- **Responses**:
+  - `200 OK`: Returns updated lead record with populated `assignedTo`.
+  - `400 Bad Request`: Disallowed lifecycle jump (e.g. `new` $\rightarrow$ `converted`) or unrecognized status value.
+  - `404 Not Found`: Lead does not exist or outside user's authorized scope.
+
+#### 4. Lead Assignment — `PATCH /api/leads/:id/assign`
+- **Permissions**: Administrator only (`authorize(['admin'])`). Sales executives receive `403 Forbidden`.
+- **Request Body**:
+```json
+{
+  "assignedTo": "67f1a2b3c4d5e6f7a8b9c0d1"
+}
+```
+*(Or `null` to unassign the lead)*
+```json
+{
+  "assignedTo": null
+}
+```
+- **Validation Rules**:
+  - Target user must exist in database.
+  - Target user must be active (`isActive: true`). Deactivated users are rejected with `400 Bad Request`.
+  - Target user role must be `sales_executive` or `admin`.
+- **Responses**:
+  - `200 OK`: Returns updated lead with populated `assignedTo`.
+  - `400 Bad Request`: Deactivated user, non-existent user, or invalid user ID.
+  - `403 Forbidden`: Non-admin access attempt.
+  - `404 Not Found`: Lead not found.
+
+---
+
+## 5. Files Created or Changed in Phase 6
 
 ### Backend (`server/`)
-- `server/src/middleware/authorize.js` — **Created**: RBAC authorization middleware.
-- `server/src/schemas/user.schema.js` — **Created**: User creation, update, and status Zod validation schemas.
-- `server/src/controllers/user.controller.js` — **Created**: User listing, stats, creation, update, and status handlers.
-- `server/src/routes/user.routes.js` — **Created**: Protected user-management routes.
-- `server/src/routes/index.js` — **Modified**: Mounted `/api/users` routes.
-- `server/scripts/testUsers.js` — **Created**: 11-case automated test suite for user management.
-
-### Frontend (`client/`)
-- `client/index.html` — **Modified**: Included `Inter` typography and SVG branded favicon.
-- `client/src/styles/_variables.scss` — **Modified**: Configured strict brand token palette and enterprise radii/shadows.
-- `client/src/styles/main.scss` — **Modified**: Applied typography scale, button utilities, and base resets.
-- `client/src/utils/api.js` — Centralized fetch wrapper with credentials.
-- `client/src/context/AuthContext.jsx` — Authentication state and session management.
-- `client/src/context/RouterContext.jsx` — Lightweight URL-synced client routing context.
-- `client/src/components/common/Icons.jsx` — **Created**: Custom zero-dependency SVG icon system.
-- `client/src/components/common/StatusBadge.jsx` & `.scss` — **Modified**: Restrained enterprise badges for roles and status.
-- `client/src/components/common/LoadingState.jsx` & `.scss` — **Modified**: Dual-ring enterprise loading spinner component.
-- `client/src/components/common/EmptyState.jsx` & `.scss` — **Modified**: Clean empty state component with SVG folder/user iconography.
-- `client/src/components/common/ConfirmDialog.jsx` & `.scss` — **Modified**: Keyboard-accessible modal confirmation dialog.
-- `client/src/components/layout/Sidebar.jsx` & `.scss` — **Modified**: Refined Navy navigation sidebar with brand crest and active indicator.
-- `client/src/components/layout/Topbar.jsx` & `.scss` — **Modified**: Top header with breadcrumbs, profile avatar, role badge, and logout.
-- `client/src/components/layout/AppLayout.jsx` & `.scss` — **Modified**: Application shell layout with responsive margins.
-- `client/src/components/users/CreateUserModal.jsx` & `.scss` — **Modified**: Enterprise employee creation modal with password toggle.
-- `client/src/components/users/EditUserModal.jsx` — **Modified**: Employee edit modal with immutable email display.
-- `client/src/pages/LoginPage.jsx` & `.scss` — **Modified**: Distinctive brand-led split authentication experience.
-- `client/src/pages/DashboardPage.jsx` & `.scss` — **Modified**: Executive Admin Dashboard with operational metrics grid.
-- `client/src/pages/UsersPage.jsx` & `.scss` — **Modified**: High-density employee directory with unified search & filtering.
-- `client/src/App.jsx` & `.scss` — **Modified**: Root loader with brand crest and verified routes.
+- `server/src/schemas/lead.schema.js` — **Created**: Zod schemas for query validation (`leadQuerySchema`), status update (`updateLeadStatusSchema`), assignment (`assignLeadSchema`), and lifecycle graph (`ALLOWED_STATUS_TRANSITIONS`).
+- `server/src/middleware/validate.js` — **Modified**: Added `validateQuery` middleware for parsing and coercing query parameters with Zod.
+- `server/src/controllers/lead.controller.js` — **Modified**: Added `getLeads`, `getLeadById`, `updateLeadStatus`, and `assignLead` with account isolation, role scoping, safe sorting, and lifecycle enforcement.
+- `server/src/routes/lead.routes.js` — **Modified**: Mounted Phase 6 endpoints (`GET /`, `GET /:id`, `PATCH /:id/status`, `PATCH /:id/assign`) with `authenticate`, `authorize`, `verifyOrigin`, and validation middlewares.
+- `server/scripts/testLeadManagement.js` — **Created**: Comprehensive 33-test automated suite for all Phase 6 lead management operations.
 
 ### Documentation
-- `docs/phase.md` — **Modified**: Updated phase status, UI refinement records, and test results.
+- `docs/phase.md` — **Modified**: Reconciled roadmap, documented Phase 6 endpoints, status transitions, RBAC permissions, and test verification logs.
 
 ---
 
-## 6. Commands and Tests Run (with Actual Results)
+## 6. Automated Verification and Test Results
 
 | Test Suite / Command | Execution Command | Result | Status |
 | :--- | :--- | :--- | :--- |
-| **Unauthenticated User API Block** | `node scripts/testUsers.js` | HTTP 401 Unauthorized | **Passed** |
-| **Non-Admin RBAC Block** | `node scripts/testUsers.js` | HTTP 403 Forbidden for Sales Executive | **Passed** |
-| **Admin User Listing & Pagination** | `node scripts/testUsers.js` | HTTP 200, users list returned, `passwordHash` omitted | **Passed** |
-| **Admin User Statistics** | `node scripts/testUsers.js` | HTTP 200, accurate total/active/inactive metrics | **Passed** |
-| **User Creation** | `node scripts/testUsers.js` | HTTP 201 Created, safe user object returned | **Passed** |
-| **Duplicate Email Prevention** | `node scripts/testUsers.js` | HTTP 409 Conflict | **Passed** |
-| **User Detail Update** | `node scripts/testUsers.js` | HTTP 200, updated fields saved | **Passed** |
-| **Self-Deactivation Guard** | `node scripts/testUsers.js` | HTTP 400 (`You cannot deactivate your own account.`) | **Passed** |
-| **User Deactivation** | `node scripts/testUsers.js` | HTTP 200, user marked `isActive: false` | **Passed** |
-| **Deactivated User Auth Block** | `node scripts/testUsers.js` | HTTP 403 Forbidden on login | **Passed** |
-| **User Reactivation** | `node scripts/testUsers.js` | HTTP 200, user restored to `isActive: true` | **Passed** |
-| **Auth Regression Suite (13 tests)** | `node scripts/testAuth.js` | All 13 authentication & rate limiting tests passed | **Passed** |
+| **Phase 6 Lead Management Suite (33 tests)** | `node scripts/testLeadManagement.js` | All 33 tests passed (Auth, CSRF, Account Isolation, Role Scoping, Pagination, Search, Safe Sorting, Details, Status Lifecycle, Assignment) | **Passed** |
+| **Phase 5 Windsor Sync Regression Suite (12 tests)** | `node scripts/testWindsorSync.js` | All 12 tests passed (URL building, deduplication, field preservation, RBAC, timeouts) | **Passed** |
+| **User Management Regression Suite (11 tests)** | `node scripts/testUsers.js` | All 11 tests passed (Admin RBAC, CRUD, deactivation lockout guard) | **Passed** |
+| **Auth Regression Suite (13 tests)** | `node scripts/testAuth.js` | All 13 tests passed (Cookie sessions, /me guards, rate limiting) | **Passed** |
 | **Frontend Production Build** | `npm run build` in `client/` | 55 modules transformed; built to `dist/` with 0 errors | **Passed** |
 
 ---
 
-## 7. Known Limitations & Remaining Work
-- **Lead Management**: Not implemented yet; planned for Phase 4.
-- **Windsor.ai Integration**: Marketing analytics deferred to Phase 5.
-- **Password Reset Flow**: For security, self-serve password resets are omitted; temporary passwords are set on creation.
+## 7. Manual Postman / cURL Verification Guide
+
+To test the Phase 6 APIs via Postman or cURL against local dev backend (`http://localhost:5000`):
+
+### 1. Authenticate as Admin
+- **Method**: `POST`
+- **URL**: `http://localhost:5000/api/auth/login`
+- **Headers**: `Content-Type: application/json`
+- **Body**:
+  ```json
+  {
+    "email": "<admin_email>",
+    "password": "<admin_password>"
+  }
+  ```
+- **Check**: Cookie `da_session` received.
+
+### 2. List Leads with Filters and Pagination
+- **Method**: `GET`
+- **URL**: `http://localhost:5000/api/leads?page=1&limit=10&status=new&sortBy=createdAt&sortOrder=desc`
+- **Check**: HTTP 200 with `leads` array, `pagination: { page, limit, total, totalPages }`.
+
+### 3. Search Leads
+- **Method**: `GET`
+- **URL**: `http://localhost:5000/api/leads?search=Aarav`
+- **Check**: Returns matching leads without regex injection or errors.
+
+### 4. Fetch Lead Details
+- **Method**: `GET`
+- **URL**: `http://localhost:5000/api/leads/<lead_id>`
+- **Check**: HTTP 200 with populated `assignedTo` object and no `passwordHash`.
+- **Negative Check**: `GET http://localhost:5000/api/leads/not-an-id` returns HTTP 400.
+
+### 5. Transition Status
+- **Method**: `PATCH`
+- **URL**: `http://localhost:5000/api/leads/<lead_id>/status`
+- **Headers**: `Content-Type: application/json`, `Origin: http://localhost:5173`
+- **Body**:
+  ```json
+  {
+    "status": "contacted"
+  }
+  ```
+- **Check**: HTTP 200 with updated status.
+- **Negative Check**: Attempting `new` $\rightarrow$ `converted` returns HTTP 400 with allowed transitions listed.
+
+### 6. Assign Lead
+- **Method**: `PATCH`
+- **URL**: `http://localhost:5000/api/leads/<lead_id>/assign`
+- **Headers**: `Content-Type: application/json`, `Origin: http://localhost:5173`
+- **Body**:
+  ```json
+  {
+    "assignedTo": "<sales_executive_user_id>"
+  }
+  ```
+- **Check**: HTTP 200 with updated `assignedTo`.
+- **Unassign Check**: Sending `{"assignedTo": null}` unassigns the lead.
+
+### 7. Sales Executive Isolation Check
+- Login as a `sales_executive` user.
+- Call `GET /api/leads`. Verify response returns *strictly* leads assigned to this user.
+- Attempt calling `PATCH /api/leads/<lead_id>/assign`. Verify response returns HTTP 403 Forbidden.
 
 ---
 
 ## 8. Exact Next Step
-- **Phase 4: Lead Management & Pipeline Tracking**:
-  - Define Lead Mongoose schema (contact info, source, status pipeline, assigned sales executive, notes).
-  - Implement Lead management CRUD and assignment APIs.
-  - Implement Lead board and pipeline tracking UI.
+- **Phase 7: Lead Management & Pipeline Tracking UI**:
+  - Build responsive Lead Directory view with status filters, search bar, and assignment chips.
+  - Implement interactive Kanban / Pipeline stage board (`new` $\rightarrow$ `contacted` $\rightarrow$ `qualified` $\rightarrow$ `converted` / `lost`).
+  - Add Quick Assign and Status Transition action modals for sales reps and admins.
