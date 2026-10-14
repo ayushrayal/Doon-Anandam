@@ -1,0 +1,33 @@
+@use '../styles/variables' as *;
+
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  gap: 0.875rem;
+
+  &__spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid $brand-light-neutral;
+    border-top-color: $brand-navy;
+    border-right-color: $brand-accent-blue;
+    border-radius: 50%;
+    animation: crm-spin 0.75s linear infinite;
+  }
+
+  &__message {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: $color-text-muted;
+    letter-spacing: 0.01em;
+  }
+}
+
+@keyframes crm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

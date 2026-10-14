@@ -118,8 +118,31 @@
 - `client/src/pages/DashboardPage.jsx` — **Modified**: Added direct shortcut buttons to Lead Pipeline for both Admins and Sales Executives.
 - `client/src/App.jsx` — **Modified**: Added client routing for `/leads` route.
 
+### 4.2 Frontend Feature-Based Architecture Refactor
+In alignment with scalable production standards, the frontend was migrated to a clean, feature-driven architecture:
+- **`client/src/app/`**: Root application shell (`App.jsx`, `App.scss`), routing providers (`RouterContext.jsx`), and composite provider tree (`AppProviders.jsx`).
+- **`client/src/features/`**: Domain-isolated feature modules with dedicated pages, components, context, and public exports (`index.js`):
+  - `features/auth/` — Session management (`AuthContext.jsx`), `LoginPage.jsx`, and styles.
+  - `features/dashboard/` — Executive metrics view (`DashboardPage.jsx`) and workspace navigation.
+  - `features/leads/` — Pipeline workspace (`LeadsPage.jsx`), `LeadDrawer.jsx`, stage controllers, and styles.
+  - `features/users/` — Directory view (`UsersPage.jsx`), `CreateUserModal.jsx`, `EditUserModal.jsx`.
+- **`client/src/shared/`**: Common, domain-agnostic UI and core libraries:
+  - `shared/components/` — `ConfirmDialog`, `EmptyState`, `Icons`, `LoadingState`, `StatusBadge`.
+  - `shared/layouts/` — `AppLayout`, `Sidebar`, `Topbar`.
+  - `shared/lib/` — Standard HTTP fetch wrapper (`api.js`).
+  - `shared/styles/` — Global variables (`_variables.scss`) and base layout styles (`main.scss`).
+
+---
+
+## 5. Files Changed or Moved
+
+### Frontend Architecture
+- Migrated 35 existing components, pages, contexts, and stylesheets into feature and shared domains via `git mv`.
+- Created feature barrels (`features/auth/index.js`, `features/dashboard/index.js`, `features/leads/index.js`, `features/users/index.js`) and `app/providers/AppProviders.jsx`.
+- Removed legacy empty directories (`components/`, `context/`, `pages/`, `styles/`, `utils/`).
+
 ### Documentation
-- `docs/phase.md` — **Modified**: Updated roadmap, Phase 7 implementation details, component specifications, and verification results.
+- `docs/phase.md` — **Modified**: Documented feature-based frontend architecture and verified test runs.
 
 ---
 
@@ -127,7 +150,7 @@
 
 | Test Suite / Command | Execution Command | Result | Status |
 | :--- | :--- | :--- | :--- |
-| **Frontend Production Build** | `npm run build` in `client/` | 59 modules transformed; built to `dist/` with 0 warnings/errors | **Passed** |
+| **Frontend Production Build** | `npm run build` in `client/` | 64 modules transformed; built to `dist/` with 0 warnings/errors | **Passed** |
 | **Phase 6 Lead Management Suite (33 tests)** | `node scripts/testLeadManagement.js` | All 33 tests passed (Auth, CSRF, Account Isolation, Role Scoping, Pagination, Search, Safe Sorting, Details, Status Lifecycle, Assignment) | **Passed** |
 | **Phase 5 Windsor Sync Regression Suite (12 tests)** | `node scripts/testWindsorSync.js` | All 12 tests passed (URL building, deduplication, field preservation, RBAC, timeouts) | **Passed** |
 | **User Management Regression Suite (11 tests)** | `node scripts/testUsers.js` | All 11 tests passed (Admin RBAC, CRUD, deactivation lockout guard) | **Passed** |

@@ -1,0 +1,329 @@
+@use '../../../shared/styles/variables' as *;
+
+.dashboard-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+/* Executive Header */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid $brand-light-neutral;
+
+  .header-meta-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+
+    .system-status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+
+      .live-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background-color: $brand-accent-blue;
+      }
+
+      .live-label {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: $color-text-subtle;
+      }
+    }
+
+    .dashboard-title {
+      font-size: 1.375rem;
+      font-weight: 700;
+      color: $brand-navy;
+      line-height: 1.2;
+    }
+
+    .dashboard-subtext {
+      font-size: 0.8125rem;
+      color: $color-text-muted;
+      line-height: 1.4;
+    }
+  }
+
+  &-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+}
+
+/* Operational Metrics Grid */
+.metrics-section {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+.metric-card {
+  background-color: $brand-white;
+  border: 1px solid rgba($brand-dark-text, 0.08);
+  border-radius: $radius-xs;
+  padding: 1.125rem 1.25rem;
+  box-shadow: $shadow-xs;
+  display: flex;
+  flex-direction: column;
+  transition: all $transition-fast;
+  position: relative;
+
+  &:hover {
+    border-color: rgba($brand-navy, 0.25);
+    box-shadow: $shadow-sm;
+  }
+
+  &__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+
+  &__label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: $color-text-subtle;
+  }
+
+  .metric-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+
+    &--active {
+      background-color: $brand-accent-blue;
+    }
+
+    &--inactive {
+      background-color: rgba($brand-dark-text, 0.35);
+    }
+  }
+
+  &__body {
+    margin-bottom: 0.5rem;
+  }
+
+  &__value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: $brand-navy;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__footer {
+    border-top: 1px solid $brand-light-neutral;
+    padding-top: 0.5rem;
+  }
+
+  &__hint {
+    font-size: 0.6875rem;
+    color: $color-text-muted;
+  }
+}
+
+/* Sales Overview Card (For non-admin employees) */
+.sales-overview-card {
+  background-color: $brand-white;
+  border: 1px solid $brand-light-neutral;
+  border-radius: $radius-xs;
+  padding: 1.5rem;
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+
+  .sales-overview-icon {
+    width: 44px;
+    height: 44px;
+    background-color: rgba($brand-navy, 0.06);
+    border-radius: $radius-xs;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: $brand-navy;
+    flex-shrink: 0;
+  }
+
+  .sales-overview-content {
+    .sales-overview-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: $brand-navy;
+      margin-bottom: 0.35rem;
+    }
+
+    .sales-overview-text {
+      font-size: 0.8125rem;
+      color: $color-text-muted;
+      line-height: 1.5;
+      margin-bottom: 1rem;
+    }
+
+    .sales-overview-meta {
+      display: flex;
+      gap: 1.5rem;
+      font-size: 0.75rem;
+      color: $color-text-muted;
+
+      strong {
+        color: $brand-dark-text;
+      }
+    }
+  }
+}
+
+/* Content Panel & Tables */
+.dashboard-content-panel {
+  background-color: $brand-white;
+  border: 1px solid rgba($brand-dark-text, 0.08);
+  border-radius: $radius-xs;
+  box-shadow: $shadow-xs;
+  overflow: hidden;
+
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.125rem 1.25rem;
+    border-bottom: 1px solid $brand-light-neutral;
+
+    .panel-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: $brand-navy;
+      line-height: 1.2;
+    }
+
+    .panel-subtitle {
+      font-size: 0.75rem;
+      color: $color-text-muted;
+      margin-top: 2px;
+    }
+  }
+
+  .panel-table-wrap {
+    overflow-x: auto;
+  }
+}
+
+.enterprise-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.8125rem;
+
+  th {
+    background-color: $brand-neutral-bg;
+    color: $color-text-subtle;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.625rem 1.25rem;
+    border-bottom: 1px solid $brand-light-neutral;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid $brand-light-neutral;
+    color: $brand-dark-text;
+    vertical-align: middle;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  tbody tr:hover td {
+    background-color: rgba($brand-navy, 0.02);
+  }
+
+  .employee-info-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+
+    .employee-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: $radius-xs;
+      background-color: rgba($brand-navy, 0.08);
+      border: 1px solid rgba($brand-navy, 0.14);
+      color: $brand-navy;
+      font-size: 0.75rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .employee-text {
+      display: flex;
+      flex-direction: column;
+
+      .employee-name {
+        font-weight: 600;
+        color: $brand-dark-text;
+        line-height: 1.2;
+      }
+
+      .employee-email {
+        font-size: 0.75rem;
+        color: $color-text-muted;
+        line-height: 1.2;
+        margin-top: 1px;
+      }
+    }
+  }
+
+  .cell-date {
+    color: $color-text-muted;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.dashboard-alert-box {
+  padding: 1.25rem;
+  background-color: $brand-light-neutral;
+  border: 1px solid rgba($brand-dark-text, 0.15);
+  border-radius: $radius-xs;
+  color: $brand-dark-text;
+  font-size: 0.8125rem;
+}
+
+/* Responsiveness */
+@media (max-width: 1024px) {
+  .metrics-section {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .metrics-section {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
