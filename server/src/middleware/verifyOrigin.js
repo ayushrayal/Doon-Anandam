@@ -18,6 +18,12 @@ export const verifyOrigin = (req, res, next) => {
       return next();
     }
 
+    // Same-origin verification using host header (supports single-service deployment)
+    const host = req.get('host');
+    if (host && (origin === `http://${host}` || origin === `https://${host}`)) {
+      return next();
+    }
+
     // Local development allow-list for localhost variants
     if (
       env.NODE_ENV !== 'production' &&

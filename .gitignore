@@ -33,6 +33,7 @@ dist/
 **/dist/
 build/
 **/build/
+server/public/
 coverage/
 **/coverage/
 .nyc_output/
