@@ -2,8 +2,8 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
-import rateLimit from 'express-rate-limit';
 import { env } from './config/env.js';
+import { apiLimiter } from './middleware/rateLimiter.js';
 import apiRouter from './routes/index.js';
 import { notFound } from './middleware/notFound.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -33,18 +33,8 @@ app.use(
   })
 );
 
-// Global API rate limiting (100 requests per 15 minutes)
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    message: 'Too many requests from this IP, please try again after 15 minutes',
-  },
-});
-app.use('/api', limiter);
+// Global API rate limiting for DoS and volumetric protection
+app.use('/api', apiLimiter);
 
 // Body and cookie parsing
 app.use(express.json());

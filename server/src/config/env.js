@@ -26,6 +26,10 @@ const envSchema = z.object({
   WINDSOR_API_BASE_URL: z.string().trim().url().default('https://connectors.windsor.ai'),
   WINDSOR_DATE_PRESET: z.string().trim().default('last_7d'),
   WINDSOR_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
+
+  // Rate Limiting Configuration
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(600),
 });
 
 const parsed = envSchema.safeParse(process.env);

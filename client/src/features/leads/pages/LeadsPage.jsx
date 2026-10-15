@@ -57,26 +57,30 @@ export function LeadsPage() {
 
   // Fetch active users for admin assignment
   useEffect(() => {
+    let isMounted = true;
     if (isAdmin) {
       apiFetch('/users?isActive=true&limit=50')
         .then((data) => {
-          setActiveUsers(data.users || []);
+          if (isMounted) setActiveUsers(data.users || []);
         })
         .catch(() => {
-          // Non-blocking fallback
-          setActiveUsers([]);
+          if (isMounted) setActiveUsers([]);
         });
     }
+    return () => {
+      isMounted = false;
+    };
   }, [isAdmin]);
 
-  // Debounce search input (300ms)
+  // Debounce search input (300ms) - only run timer if search diverged
   useEffect(() => {
+    if (search === debouncedSearch) return;
     const timer = setTimeout(() => {
       setDebouncedSearch(search);
       setPage(1);
     }, 300);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [search, debouncedSearch]);
 
   // Build query params and fetch leads
   const fetchLeads = useCallback(async () => {
@@ -182,6 +186,7 @@ export function LeadsPage() {
 
   const handleResetFilters = () => {
     setSearch('');
+    setDebouncedSearch('');
     setStatusFilter('all');
     setSourceFilter('all');
     setAssignedFilter('all');
@@ -423,9 +428,25 @@ export function LeadsPage() {
           <div className="leads-table-error">
             <IconAlertTriangle size={24} />
             <p>{error}</p>
-            <button type="button" className="retry-btn" onClick={fetchLeads}>
-              <IconRefresh size={14} /> Retry
-            </button>
+            {error.toLowerCase().includes('too many requests') ? (
+              <div className="rate-limit-notice" style={{ marginTop: '0.75rem', textAlign: 'center' }}>
+                <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.75rem' }}>
+                  Temporary rate limit reached for this IP. Please wait a brief moment before refreshing.
+                </p>
+                <button
+                  type="button"
+                  className="retry-btn"
+                  onClick={fetchLeads}
+                  disabled={loading}
+                >
+                  <IconRefresh size={14} className={loading ? 'spin' : ''} /> Check Again
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="retry-btn" onClick={fetchLeads} disabled={loading}>
+                <IconRefresh size={14} className={loading ? 'spin' : ''} /> Retry
+              </button>
+            )}
           </div>
         )}
 
