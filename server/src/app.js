@@ -8,6 +8,7 @@ import cookieParser from 'cookie-parser';
 import { env } from './config/env.js';
 import { apiLimiter } from './middleware/rateLimiter.js';
 import apiRouter from './routes/index.js';
+import { getAllowedOrigins } from './middleware/verifyOrigin.js';
 import { notFound } from './middleware/notFound.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -44,19 +45,16 @@ app.use(
 // Client CORS credentials configuration
 app.use(
   cors((req, callback) => {
-    const host = req.get('host');
-    const configuredOrigins =
-      env.NODE_ENV === 'production'
-        ? [env.CLIENT_URL]
-        : Array.from(new Set([env.CLIENT_URL, 'http://localhost:5173', 'http://127.0.0.1:5173']));
-
-    const sameOrigins = host ? [`http://${host}`, `https://${host}`] : [];
-    const validOrigins = Array.from(new Set([...configuredOrigins, ...sameOrigins].filter(Boolean)));
+    const allowedOrigins = getAllowedOrigins(req);
 
     callback(null, {
       origin: (origin, cb) => {
         // Allow requests with no origin (e.g., Postman, cURL, server-to-server, same-origin browser fetches)
-        if (!origin || validOrigins.includes(origin)) {
+        if (!origin) {
+          return cb(null, true);
+        }
+        const cleanOrigin = origin.trim().replace(/\/+$/, '');
+        if (allowedOrigins.includes(cleanOrigin)) {
           return cb(null, true);
         }
         // Deny CORS headers for disallowed origins

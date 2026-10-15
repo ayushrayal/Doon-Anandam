@@ -1,6 +1,7 @@
 import { verifyToken, COOKIE_NAME } from '../utils/jwt.js';
 import User from '../models/User.js';
 import { env } from '../config/env.js';
+import { isOriginAllowed } from './verifyOrigin.js';
 
 /**
  * Authentication middleware.
@@ -20,18 +21,11 @@ export const authenticate = async (req, res, next) => {
     // Protect cookie-authenticated state-changing requests against cross-origin abuse
     if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
       const origin = req.headers.origin;
-      if (origin && origin !== env.CLIENT_URL) {
-        // In local development, also allow localhost client URL
-        const isAllowedLocal =
-          env.NODE_ENV !== 'production' &&
-          (origin === 'http://localhost:5173' || origin === 'http://127.0.0.1:5173');
-
-        if (!isAllowedLocal) {
-          return res.status(403).json({
-            success: false,
-            message: 'Cross-origin request forbidden.',
-          });
-        }
+      if (origin && !isOriginAllowed(origin, req)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Cross-origin request forbidden.',
+        });
       }
     }
 

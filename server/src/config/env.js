@@ -7,7 +7,11 @@ dotenv.config();
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(5000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  CLIENT_URL: z.string().trim().default('http://localhost:5173'),
+  CLIENT_URL: z
+    .string()
+    .trim()
+    .default(process.env.RENDER_EXTERNAL_URL || 'http://localhost:5173')
+    .transform((val) => val.replace(/\/+$/, '')),
   MONGODB_URI: z.string().trim().optional(),
   JWT_SECRET: z.string().trim().optional(),
   JWT_EXPIRES_IN: z.string().trim().default('7d'),

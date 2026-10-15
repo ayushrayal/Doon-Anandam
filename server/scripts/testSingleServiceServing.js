@@ -3,6 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import app from '../src/app.js';
 import { connectDB, disconnectDB } from '../src/config/db.js';
+import { signToken, COOKIE_NAME } from '../src/utils/jwt.js';
+
+import User from '../src/models/User.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +26,10 @@ async function runTests() {
   console.log('=== Starting Single-Service Serving & Routing Automated Tests ===\n');
 
   await connectDB();
+  const testUser = await User.findOne({ isActive: true });
+  const testUserId = testUser ? testUser._id : '507f1f77bcf86cd799439011';
+  const testUserRole = testUser ? testUser.role : 'admin';
+  const testAuthCookie = `${COOKIE_NAME}=${signToken({ id: testUserId, role: testUserRole })}`;
   server = await new Promise((resolve) => {
     const s = app.listen(TEST_PORT, () => resolve(s));
   });
@@ -165,8 +172,85 @@ async function runTests() {
     assert(proxyTestRes.status === 200, 'Health endpoint responds under proxy headers');
     console.log('✔ Test 13: Reverse proxy forwarded headers processed with trust proxy = 1');
 
+    // Test 14: Production same-origin PATCH request (https://doon-anandam.onrender.com) passes verifyOrigin
+    const prodPatchRes = await fetch(`${BASE_URL}/api/leads/507f1f77bcf86cd799439011/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Host': 'doon-anandam.onrender.com',
+        'X-Forwarded-Proto': 'https',
+        Origin: 'https://doon-anandam.onrender.com',
+        Cookie: testAuthCookie,
+      },
+      body: JSON.stringify({ status: 'contacted' }),
+    });
+    // Must NOT be 403 Forbidden ("Cross-origin request forbidden"). Should pass verifyOrigin and reach controller (404 lead not found)
+    assert(
+      prodPatchRes.status !== 403,
+      `Expected non-403 for production same-origin PATCH, but got 403 Forbidden`
+    );
+    assert(prodPatchRes.status === 404, `Expected 404 lead not found (passed auth and origin), got ${prodPatchRes.status}`);
+    console.log('✔ Test 14: Production same-origin PATCH (https://doon-anandam.onrender.com) passes verifyOrigin cleanly');
+
+    // Test 15: Production same-origin POST request (https://doon-anandam.onrender.com) passes verifyOrigin
+    const prodPostRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Host': 'doon-anandam.onrender.com',
+        'X-Forwarded-Proto': 'https',
+        Origin: 'https://doon-anandam.onrender.com',
+      },
+      body: JSON.stringify({ email: 'nobody@doon-anandam.com', password: 'password123' }),
+    });
+    assert(prodPostRes.status === 401, `Expected 401 for prod POST login, got ${prodPostRes.status}`);
+    console.log('✔ Test 15: Production same-origin POST (https://doon-anandam.onrender.com) passes verifyOrigin cleanly');
+
+    // Test 16: Untrusted external origin on authenticated PATCH request is strictly blocked with 403
+    const evilPatchRes = await fetch(`${BASE_URL}/api/leads/507f1f77bcf86cd799439011/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Host': 'doon-anandam.onrender.com',
+        'X-Forwarded-Proto': 'https',
+        Origin: 'https://malicious-attacker.com',
+        Cookie: testAuthCookie,
+      },
+      body: JSON.stringify({ status: 'contacted' }),
+    });
+    assert(evilPatchRes.status === 403, `Expected 403 for malicious PATCH, got ${evilPatchRes.status}`);
+    const evilPatchData = await evilPatchRes.json();
+    assert(evilPatchData.message === 'Cross-origin request forbidden.', 'Forbidden message received on malicious PATCH');
+    console.log('✔ Test 16: Untrusted cross-origin PATCH correctly blocked with 403 Forbidden');
+
+    // Test 17: Attacker spoofing X-Forwarded-Host with their own Origin is blocked with 403
+    const spoofedHostRes = await fetch(`${BASE_URL}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Host': 'attacker-controlled.com',
+        'X-Forwarded-Proto': 'https',
+        Origin: 'https://attacker-controlled.com',
+      },
+      body: JSON.stringify({ email: 'nobody@example.com', password: 'password123' }),
+    });
+    assert(spoofedHostRes.status === 403, `Expected 403 for spoofed host attack, got ${spoofedHostRes.status}`);
+    console.log('✔ Test 17: Spoofed X-Forwarded-Host origin attack successfully blocked with 403');
+
+    // Test 18: Missing Origin header on PATCH allowed per security policy (cURL/server-to-server)
+    const noOriginPatchRes = await fetch(`${BASE_URL}/api/leads/507f1f77bcf86cd799439011/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: testAuthCookie,
+      },
+      body: JSON.stringify({ status: 'contacted' }),
+    });
+    assert(noOriginPatchRes.status === 404, `Expected 404 (reached controller) for no-origin PATCH, got ${noOriginPatchRes.status}`);
+    console.log('✔ Test 18: Missing Origin header follows security policy and proceeds to auth/controller');
+
     console.log('\n=============================================================');
-    console.log('🎉 ALL 13 SINGLE-SERVICE SERVING & ROUTING TESTS PASSED!');
+    console.log('🎉 ALL 18 SINGLE-SERVICE SERVING & ROUTING TESTS PASSED!');
     console.log('=============================================================\n');
   } finally {
     if (server) {
