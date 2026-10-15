@@ -102,6 +102,17 @@
     }
   }
 
+  &--lead-follow_up {
+    background-color: rgba(#d97706, 0.1);
+    color: #b45309;
+    border: 1px solid rgba(#d97706, 0.3);
+    font-weight: 600;
+
+    .status-badge__dot {
+      background-color: #d97706;
+    }
+  }
+
   &--lead-lost {
     background-color: $brand-light-neutral;
     color: rgba($brand-dark-text, 0.6);

@@ -26,6 +26,7 @@ export function StatusBadge({ type, value }) {
     const statusLabels = {
       new: 'New Lead',
       contacted: 'Contacted',
+      follow_up: 'Follow Up',
       qualified: 'Qualified',
       converted: 'Converted',
       lost: 'Lost',

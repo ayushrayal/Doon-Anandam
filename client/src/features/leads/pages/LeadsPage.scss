@@ -488,6 +488,40 @@
   font-style: italic;
 }
 
+.table-followup-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: $radius-full;
+  white-space: nowrap;
+
+  &--overdue {
+    background-color: #fee2e2;
+    color: #b91c1c;
+    border: 1px solid #fca5a5;
+  }
+
+  &--today {
+    background-color: #fef3c7;
+    color: #b45309;
+    border: 1px solid #fde68a;
+  }
+
+  &--upcoming {
+    background-color: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+  }
+}
+
+.table-followup-none {
+  color: $color-text-subtle;
+  font-size: 0.75rem;
+}
+
 .date-cell {
   font-size: 0.75rem;
   color: $color-text-muted;

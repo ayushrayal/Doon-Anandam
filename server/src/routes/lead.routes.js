@@ -5,6 +5,10 @@ import {
   updateLeadStatus,
   assignLead,
   syncLeads,
+  scheduleFollowUp,
+  completeFollowUp,
+  getLeadActivities,
+  createLeadActivity,
 } from '../controllers/lead.controller.js';
 import { authenticate } from '../middleware/auth.js';
 import { authorize } from '../middleware/authorize.js';
@@ -14,6 +18,9 @@ import {
   leadQuerySchema,
   updateLeadStatusSchema,
   assignLeadSchema,
+  scheduleFollowUpSchema,
+  completeFollowUpSchema,
+  createActivitySchema,
 } from '../schemas/lead.schema.js';
 
 const router = Router();
@@ -24,7 +31,7 @@ router.use(authenticate);
 // 1. Lead listing with pagination, search, safe sorting, and filters
 router.get('/', validateQuery(leadQuerySchema), getLeads);
 
-// 2. Admin-only manual synchronization endpoint (Phase 5)
+// 2. Admin-only manual synchronization endpoint
 router.post('/sync', authorize(['admin']), verifyOrigin, syncLeads);
 
 // 3. Lead details by ID
@@ -45,6 +52,33 @@ router.patch(
   verifyOrigin,
   validateBody(assignLeadSchema),
   assignLead
+);
+
+// 6. Schedule or reschedule a sales follow-up
+router.post(
+  '/:id/follow-up',
+  verifyOrigin,
+  validateBody(scheduleFollowUpSchema),
+  scheduleFollowUp
+);
+
+// 7. Complete a scheduled sales follow-up
+router.patch(
+  '/:id/follow-up/complete',
+  verifyOrigin,
+  validateBody(completeFollowUpSchema),
+  completeFollowUp
+);
+
+// 8. Retrieve chronological activity timeline for lead
+router.get('/:id/activities', getLeadActivities);
+
+// 9. Append a direct activity entry (call, whatsapp, meeting, email, note)
+router.post(
+  '/:id/activities',
+  verifyOrigin,
+  validateBody(createActivitySchema),
+  createLeadActivity
 );
 
 export default router;

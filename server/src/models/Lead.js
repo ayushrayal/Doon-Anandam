@@ -99,7 +99,7 @@ const leadSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Lead status is required'],
       enum: {
-        values: ['new', 'contacted', 'qualified', 'lost', 'converted'],
+        values: ['new', 'contacted', 'follow_up', 'qualified', 'lost', 'converted'],
         message: '{VALUE} is not a valid lead status',
       },
       default: 'new',
@@ -115,6 +115,20 @@ const leadSchema = new mongoose.Schema(
       default: '',
       maxlength: [2000, 'Notes cannot exceed 2000 characters'],
     },
+    nextFollowUpDate: {
+      type: Date,
+      default: null,
+    },
+    nextFollowUpRemarks: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: [500, 'Follow-up remarks cannot exceed 500 characters'],
+    },
+    lastFollowUpCompletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -128,6 +142,7 @@ leadSchema.index({ source: 1, accountId: 1, externalLeadId: 1 }, { unique: true 
 leadSchema.index({ status: 1 });
 leadSchema.index({ assignedTo: 1 });
 leadSchema.index({ leadCreatedAt: -1 });
+leadSchema.index({ nextFollowUpDate: 1 });
 
 const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
 

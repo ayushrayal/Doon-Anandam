@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../auth/index.js';
+import { useRouter } from '../../../app/routing/RouterContext.jsx';
 import { apiFetch } from '../../../shared/lib/api.js';
 import { StatusBadge } from '../../../shared/components/StatusBadge.jsx';
 import { LoadingState } from '../../../shared/components/LoadingState.jsx';
@@ -17,11 +18,13 @@ import {
   IconMail,
   IconAlertTriangle,
   IconCheckCircle,
+  IconClock,
 } from '../../../shared/components/Icons.jsx';
 import './LeadsPage.scss';
 
 export function LeadsPage() {
   const { user: currentUser, isAdmin } = useAuth();
+  const { currentSearch } = useRouter();
 
   // Leads list state
   const [leads, setLeads] = useState([]);
@@ -30,15 +33,35 @@ export function LeadsPage() {
   const [limit, setLimit] = useState(10);
   const [totalPages, setTotalPages] = useState(1);
 
+  // Read initial query parameters for drill-down navigation support
+  const queryParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const initialStatus = queryParams.get('status') || 'all';
+  const initialFollowUp = queryParams.get('followUpStatus') || queryParams.get('followUp') || 'all';
+  const initialAssigned = queryParams.get('assignedTo') || 'all';
+  const initialDate = queryParams.get('dateFilter') || 'all';
+
   // Filter state
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [sourceFilter, setSourceFilter] = useState('all');
-  const [assignedFilter, setAssignedFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState('all');
+  const [assignedFilter, setAssignedFilter] = useState(initialAssigned);
+  const [dateFilter, setDateFilter] = useState(initialDate);
+  const [followUpFilter, setFollowUpFilter] = useState(initialFollowUp);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
+
+  // Synchronize when currentSearch changes (e.g., from Dashboard drill-down cards)
+  useEffect(() => {
+    if (currentSearch !== undefined) {
+      const q = new URLSearchParams(currentSearch || (typeof window !== 'undefined' ? window.location.search : ''));
+      if (q.has('status')) setStatusFilter(q.get('status'));
+      if (q.has('followUpStatus')) setFollowUpFilter(q.get('followUpStatus'));
+      else if (q.has('followUp')) setFollowUpFilter(q.get('followUp'));
+      if (q.has('assignedTo')) setAssignedFilter(q.get('assignedTo'));
+      if (q.has('dateFilter')) setDateFilter(q.get('dateFilter'));
+    }
+  }, [currentSearch]);
 
   // UI state
   const [loading, setLoading] = useState(true);
@@ -108,6 +131,9 @@ export function LeadsPage() {
       if (isAdmin && assignedFilter !== 'all') {
         params.set('assignedTo', assignedFilter);
       }
+      if (followUpFilter !== 'all') {
+        params.set('followUpStatus', followUpFilter);
+      }
 
       // Date range filtering
       if (dateFilter !== 'all') {
@@ -147,7 +173,7 @@ export function LeadsPage() {
         setLoading(false);
       }
     }
-  }, [page, limit, debouncedSearch, statusFilter, sourceFilter, assignedFilter, dateFilter, sortBy, sortOrder, isAdmin]);
+  }, [page, limit, debouncedSearch, statusFilter, sourceFilter, assignedFilter, dateFilter, followUpFilter, sortBy, sortOrder, isAdmin]);
 
   useEffect(() => {
     fetchLeads();
@@ -191,6 +217,7 @@ export function LeadsPage() {
     setSourceFilter('all');
     setAssignedFilter('all');
     setDateFilter('all');
+    setFollowUpFilter('all');
     setSortBy('createdAt');
     setSortOrder('desc');
     setPage(1);
@@ -201,7 +228,8 @@ export function LeadsPage() {
     statusFilter !== 'all' ||
     sourceFilter !== 'all' ||
     assignedFilter !== 'all' ||
-    dateFilter !== 'all';
+    dateFilter !== 'all' ||
+    followUpFilter !== 'all';
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '—';
@@ -325,6 +353,7 @@ export function LeadsPage() {
               <option value="all">All Stages</option>
               <option value="new">New Lead</option>
               <option value="contacted">Contacted</option>
+              <option value="follow_up">Follow Up</option>
               <option value="qualified">Qualified</option>
               <option value="converted">Converted</option>
               <option value="lost">Lost</option>
@@ -375,6 +404,29 @@ export function LeadsPage() {
               <option value="today">Today</option>
               <option value="7d">Last 7 Days</option>
               <option value="30d">Last 30 Days</option>
+            </select>
+          </div>
+
+          {/* Follow-Up Status Filter */}
+          <div className="filter-select-wrap">
+            <label htmlFor="filter-followup" className="sr-only">
+              Filter by Follow-Up
+            </label>
+            <select
+              id="filter-followup"
+              className="filter-select"
+              value={followUpFilter}
+              onChange={(e) => {
+                setFollowUpFilter(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="all">All Follow-ups</option>
+              <option value="today">Due Today</option>
+              <option value="overdue">Overdue</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="scheduled">Any Scheduled</option>
+              <option value="none">No Follow-up</option>
             </select>
           </div>
 
@@ -472,6 +524,7 @@ export function LeadsPage() {
                   <th scope="col" className="col-contact">Contact Channels</th>
                   <th scope="col" className="col-campaign">Attribution & Form</th>
                   <th scope="col" className="col-status">Pipeline Stage</th>
+                  <th scope="col" className="col-followup">Next Follow-Up</th>
                   <th scope="col" className="col-assigned">Assigned Executive</th>
                   <th scope="col" className="col-date">Ingested</th>
                   <th scope="col" className="col-actions text-right">Actions</th>
@@ -557,6 +610,25 @@ export function LeadsPage() {
                       {/* Status */}
                       <td className="col-status">
                         <StatusBadge type="leadStatus" value={lead.status} />
+                      </td>
+
+                      {/* Next Follow-Up */}
+                      <td className="col-followup">
+                        {lead.nextFollowUpDate ? (
+                          <div
+                            className={`table-followup-badge table-followup-badge--${lead.followUpIndicator || 'upcoming'}`}
+                            title={
+                              lead.nextFollowUpRemarks
+                                ? `Reminder: ${lead.nextFollowUpRemarks}`
+                                : 'Follow-up scheduled'
+                            }
+                          >
+                            <IconClock size={11} />
+                            <span>{formatDate(lead.nextFollowUpDate)}</span>
+                          </div>
+                        ) : (
+                          <span className="table-followup-none">—</span>
+                        )}
                       </td>
 
                       {/* Assigned Rep */}
