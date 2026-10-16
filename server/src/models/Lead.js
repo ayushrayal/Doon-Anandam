@@ -144,6 +144,13 @@ leadSchema.index({ assignedTo: 1 });
 leadSchema.index({ leadCreatedAt: -1 });
 leadSchema.index({ nextFollowUpDate: 1 });
 
+// High-performance compound operational indexes (scoped by accountId)
+leadSchema.index({ accountId: 1, createdAt: -1 });
+leadSchema.index({ accountId: 1, assignedTo: 1, createdAt: -1 });
+leadSchema.index({ accountId: 1, status: 1, createdAt: -1 });
+leadSchema.index({ accountId: 1, nextFollowUpDate: 1 });
+leadSchema.index({ accountId: 1, leadCreatedAt: -1 });
+
 const Lead = mongoose.models.Lead || mongoose.model('Lead', leadSchema);
 
 export default Lead;

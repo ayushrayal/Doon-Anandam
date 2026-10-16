@@ -4,6 +4,84 @@ import Activity from '../models/Activity.js';
 import User from '../models/User.js';
 import { env } from '../config/env.js';
 
+// Short-lived in-memory cache to absorb concurrent dashboard requests
+// Short-lived in-memory cache to absorb concurrent dashboard requests
+const analyticsCache = new Map();
+export const ANALYTICS_CACHE_TTL_MS = 20 * 1000; // 20 seconds TTL
+let maxAnalyticsCacheEntries = 200; // Configurable upper capacity limit
+export const ANALYTICS_QUERY_TIMEOUT_MS = 8000; // 8 seconds timeout limit for aggregations
+
+/**
+ * Prunes expired entries and evicts oldest entries (FIFO) when capacity is exceeded.
+ */
+export function setBoundedAnalyticsCache(key, data, ttlMs = ANALYTICS_CACHE_TTL_MS) {
+  const now = Date.now();
+
+  // 1. Prune expired entries first
+  for (const [k, v] of analyticsCache) {
+    if (v.expiresAt <= now) {
+      analyticsCache.delete(k);
+    }
+  }
+
+  // If key already exists in cache, delete it first to re-insert at end (fresh insertion order)
+  if (analyticsCache.has(key)) {
+    analyticsCache.delete(key);
+  }
+
+  // 2. If still at/over capacity, evict oldest entry (FIFO using Map insertion order)
+  while (analyticsCache.size >= maxAnalyticsCacheEntries) {
+    const oldestKey = analyticsCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      analyticsCache.delete(oldestKey);
+    } else {
+      break;
+    }
+  }
+
+  analyticsCache.set(key, {
+    data,
+    expiresAt: now + ttlMs,
+  });
+}
+
+export function setAnalyticsCacheCapacity(limit) {
+  maxAnalyticsCacheEntries = Math.max(1, limit);
+}
+
+export function getAnalyticsCacheCapacity() {
+  return maxAnalyticsCacheEntries;
+}
+
+/**
+ * Invalidate cached analytics data when CRM records change.
+ */
+export function invalidateAnalyticsCache(accountId = null) {
+  if (!accountId) {
+    analyticsCache.clear();
+    return;
+  }
+  for (const [key] of analyticsCache) {
+    if (key.includes(`:${accountId}:`)) {
+      analyticsCache.delete(key);
+    }
+  }
+}
+
+export function getAnalyticsCacheSize() {
+  return analyticsCache.size;
+}
+
+export function getAnalyticsCacheEntry(key) {
+  const entry = analyticsCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    analyticsCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
 /**
  * Computes calendar date boundaries based on preset or explicit ISO dates.
  * Ensures strict date isolation with start of day (00:00:00.000) and end of day (23:59:59.999).
@@ -47,6 +125,26 @@ function computeDateBounds(preset, startDate, endDate) {
 export const getDashboardAnalytics = async (req, res, next) => {
   try {
     const { preset = '30d', startDate, endDate, assignedTo, source } = req.query;
+
+    const isTest = process.env.NODE_ENV === 'test';
+    const accountScope = env.WINDSOR_ACCOUNT_ID || 'global';
+
+    // Strict user-role isolated cache key:
+    // - For sales executives: keyed by their user ID so they can NEVER see other rep data
+    // - For admins: keyed by requested assignedTo filter and account scope
+    const cacheKey =
+      req.user.role === 'admin'
+        ? `admin:${accountScope}:${preset}:${startDate || ''}:${endDate || ''}:${assignedTo || 'all'}:${source || 'all'}`
+        : `exec:${req.user._id}:${accountScope}:${preset}:${startDate || ''}:${endDate || ''}:${source || 'all'}`;
+
+    if (!isTest) {
+      const cached = analyticsCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return res.status(200).json(cached.data);
+      } else if (cached) {
+        analyticsCache.delete(cacheKey);
+      }
+    }
 
     const dateBounds = computeDateBounds(preset, startDate, endDate);
 
@@ -118,7 +216,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
           ],
         },
       },
-    ]);
+    ]).option({ maxTimeMS: ANALYTICS_QUERY_TIMEOUT_MS });
 
     // Format Cohort Metrics
     const cohortTotal = cohortResults?.totalCount?.[0]?.count || 0;
@@ -223,7 +321,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
           ],
         },
       },
-    ]);
+    ]).option({ maxTimeMS: ANALYTICS_QUERY_TIMEOUT_MS });
 
     const allTimeTotal = allTimeResults?.totalCount?.[0]?.count || 0;
     const allTimeStatusMap = {
@@ -267,7 +365,9 @@ export const getDashboardAnalytics = async (req, res, next) => {
       if (dateBounds.start) periodConversionFilter.performedAt.$gte = dateBounds.start;
       if (dateBounds.end) periodConversionFilter.performedAt.$lte = dateBounds.end;
     }
-    const verifiedConversionsInPeriod = await Activity.countDocuments(periodConversionFilter);
+    const verifiedConversionsInPeriod = await Activity.countDocuments(periodConversionFilter).maxTimeMS(
+      ANALYTICS_QUERY_TIMEOUT_MS
+    );
 
     // Completed follow-ups during selected period
     const completedFollowUpsFilter = {
@@ -284,7 +384,9 @@ export const getDashboardAnalytics = async (req, res, next) => {
       if (dateBounds.start) completedFollowUpsFilter.performedAt.$gte = dateBounds.start;
       if (dateBounds.end) completedFollowUpsFilter.performedAt.$lte = dateBounds.end;
     }
-    const followUpsCompletedInPeriod = await Activity.countDocuments(completedFollowUpsFilter);
+    const followUpsCompletedInPeriod = await Activity.countDocuments(completedFollowUpsFilter).maxTimeMS(
+      ANALYTICS_QUERY_TIMEOUT_MS
+    );
 
     // 6. Pipeline Funnel Progression (Evaluated for the selected cohort)
     const pipelineFunnel = [
@@ -318,6 +420,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
       const activeExecs = await User.find({ isActive: true })
         .select('_id name email role')
         .sort({ name: 1 })
+        .maxTimeMS(ANALYTICS_QUERY_TIMEOUT_MS)
         .lean();
 
       const execAggregation = await Lead.aggregate([
@@ -385,7 +488,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
             },
           },
         },
-      ]);
+      ]).option({ maxTimeMS: ANALYTICS_QUERY_TIMEOUT_MS });
 
       const execStatsMap = new Map();
       execAggregation.forEach((item) => {
@@ -483,7 +586,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
             },
           },
         },
-      ]);
+      ]).option({ maxTimeMS: ANALYTICS_QUERY_TIMEOUT_MS });
 
       const stats = execStats[0] || {
         totalAssigned: 0,
@@ -520,7 +623,9 @@ export const getDashboardAnalytics = async (req, res, next) => {
       const repLeadIds = await Lead.find({
         ...(env.WINDSOR_ACCOUNT_ID ? { accountId: env.WINDSOR_ACCOUNT_ID } : {}),
         assignedTo: req.user._id,
-      }).distinct('_id');
+      })
+        .maxTimeMS(ANALYTICS_QUERY_TIMEOUT_MS)
+        .distinct('_id');
 
       recentActivityFilter.$or = [
         { performedBy: req.user._id },
@@ -531,8 +636,9 @@ export const getDashboardAnalytics = async (req, res, next) => {
     const recentActivities = await Activity.find(recentActivityFilter)
       .sort({ performedAt: -1 })
       .limit(10)
+      .maxTimeMS(ANALYTICS_QUERY_TIMEOUT_MS)
       .populate('performedBy', '_id name email role')
-      .populate('leadId', '_id fullName phone email status')
+      .populate('leadId', '_id fullName phoneNumber email status')
       .lean();
 
     // 9. Document Filter Semantics (Transparent definition of every KPI)
@@ -552,7 +658,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
         'Overall CRM status distribution across all leads currently under scope.',
     };
 
-    return res.status(200).json({
+    const responsePayload = {
       success: true,
       filterSemantics,
       cohort: {
@@ -585,8 +691,31 @@ export const getDashboardAnalytics = async (req, res, next) => {
       pipelineFunnel,
       executiveBreakdown,
       recentActivities,
-    });
+    };
+
+    if (!isTest) {
+      setBoundedAnalyticsCache(cacheKey, responsePayload, ANALYTICS_CACHE_TTL_MS);
+    }
+
+    return res.status(200).json(responsePayload);
   } catch (err) {
+    const isTimeout =
+      err.code === 50 ||
+      err.codeName === 'MaxTimeMSExpired' ||
+      err.name === 'MaxTimeMSExpired' ||
+      (typeof err.message === 'string' &&
+        (err.message.includes('time limit') ||
+          err.message.includes('execution terminated') ||
+          err.message.includes('MaxTimeMSExpired') ||
+          err.message.includes('maxTimeMS') ||
+          err.message.includes('timed out')));
+
+    if (isTimeout) {
+      return res.status(504).json({
+        success: false,
+        message: 'Analytics query timed out. Please refine your date filter or scope.',
+      });
+    }
     next(err);
   }
 };

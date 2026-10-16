@@ -3,6 +3,7 @@ import {
   fetchFacebookLeads,
   mapAndValidateLeadRecord,
 } from './windsor.service.js';
+import { invalidateAnalyticsCache } from '../controllers/analytics.controller.js';
 
 /**
  * Concurrency lock for lead synchronization within a running server process.
@@ -128,6 +129,8 @@ export async function syncFacebookLeads({
         } else {
           throw err;
         }
+      } finally {
+        invalidateAnalyticsCache(accountId);
       }
     }
 

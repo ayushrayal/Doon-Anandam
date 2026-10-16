@@ -5,6 +5,7 @@ import Activity from '../models/Activity.js';
 import { env } from '../config/env.js';
 import { ALLOWED_STATUS_TRANSITIONS } from '../schemas/lead.schema.js';
 import { syncFacebookLeads } from '../services/leadSync.service.js';
+import { invalidateAnalyticsCache } from './analytics.controller.js';
 
 /**
  * Computes the operational follow-up indicator for a given follow-up date.
@@ -148,16 +149,24 @@ export const getLeads = async (req, res, next) => {
     const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
 
+    let leadQuery = Lead.find(filter)
+      .select('-__v')
+      .populate('assignedTo', '_id name email role')
+      .sort(sort)
+      .skip(skip)
+      .limit(limitNum)
+      .maxTimeMS(5000)
+      .lean();
+
+    // Collation is strictly needed only for alphabetical sorting on textual fullName
+    // Leaving it off for Date and ID sorting allows standard B-tree index scans
+    if (sortField === 'fullName') {
+      leadQuery = leadQuery.collation({ locale: 'en' });
+    }
+
     const [total, rawLeads] = await Promise.all([
-      Lead.countDocuments(filter),
-      Lead.find(filter)
-        .collation({ locale: 'en' })
-        .select('-__v')
-        .populate('assignedTo', '_id name email role')
-        .sort(sort)
-        .skip(skip)
-        .limit(limitNum)
-        .lean(),
+      Lead.countDocuments(filter).maxTimeMS(5000),
+      leadQuery,
     ]);
 
     const totalPages = Math.ceil(total / limitNum) || 1;
@@ -183,6 +192,15 @@ export const getLeads = async (req, res, next) => {
       totalPages,
     });
   } catch (err) {
+    if (
+      err.name === 'MongoServerError' &&
+      (err.code === 50 || err.message?.includes('time limit') || err.message?.includes('execution terminated'))
+    ) {
+      return res.status(504).json({
+        success: false,
+        message: 'Lead query timed out. Please refine your filter parameters.',
+      });
+    }
     next(err);
   }
 };
@@ -305,6 +323,7 @@ export const updateLeadStatus = async (req, res, next) => {
 
     await lead.save();
     await lead.populate('assignedTo', '_id name email role');
+    invalidateAnalyticsCache(lead.accountId);
 
     // Build descriptive activity log summary
     let summaryText = `Lead stage changed from '${currentStatus}' to '${targetStatus}'.`;
@@ -407,6 +426,7 @@ export const assignLead = async (req, res, next) => {
 
     await lead.save();
     await lead.populate('assignedTo', '_id name email role');
+    invalidateAnalyticsCache(lead.accountId);
 
     // Append assignment activity record
     try {
@@ -491,8 +511,8 @@ export const scheduleFollowUp = async (req, res, next) => {
     lead.nextFollowUpDate = targetDate;
     lead.nextFollowUpRemarks = remarks || '';
     await lead.save();
-
     await lead.populate('assignedTo', '_id name email role');
+    invalidateAnalyticsCache(lead.accountId);
 
     const activityType = isReschedule ? 'follow_up_rescheduled' : 'follow_up_scheduled';
     const formattedDate = targetDate.toLocaleString('en-US', {
@@ -580,8 +600,8 @@ export const completeFollowUp = async (req, res, next) => {
     lead.nextFollowUpRemarks = '';
     lead.lastFollowUpCompletedAt = new Date();
     await lead.save();
-
     await lead.populate('assignedTo', '_id name email role');
+    invalidateAnalyticsCache(lead.accountId);
 
     const summaryText = notes
       ? `Follow-up completed. Notes: ${notes}`
@@ -702,6 +722,7 @@ export const createLeadActivity = async (req, res, next) => {
     });
 
     await activity.populate('performedBy', '_id name email role');
+    invalidateAnalyticsCache(lead.accountId);
 
     return res.status(201).json({
       success: true,

@@ -23,13 +23,13 @@ export const verifyToken = (token) => {
 
 /**
  * Cookie configuration options.
- * In production: Secure=true, SameSite=none (required for cross-site Render deployments).
+ * In production: Secure=true, SameSite=lax (safe same-origin protection for single Render service).
  * In development: Secure=false, SameSite=lax (for localhost HTTP requests).
  */
 export const getAuthCookieOptions = () => ({
   httpOnly: true,
   secure: env.NODE_ENV === 'production',
-  sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
+  sameSite: 'lax',
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
   path: '/',
 });
@@ -40,6 +40,6 @@ export const getAuthCookieOptions = () => ({
 export const getClearAuthCookieOptions = () => ({
   httpOnly: true,
   secure: env.NODE_ENV === 'production',
-  sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
+  sameSite: 'lax',
   path: '/',
 });

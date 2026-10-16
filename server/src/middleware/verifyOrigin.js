@@ -36,7 +36,7 @@ export function isAllowedHost(host) {
   }
 
   // 3. Known Render production service domain for this deployment
-  if (hostname === 'doon-anandam.onrender.com' || hostname.endsWith('.onrender.com')) {
+  if (hostname === 'doon-anandam.onrender.com') {
     return true;
   }
 

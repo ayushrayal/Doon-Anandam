@@ -249,8 +249,29 @@ async function runTests() {
     assert(noOriginPatchRes.status === 404, `Expected 404 (reached controller) for no-origin PATCH, got ${noOriginPatchRes.status}`);
     console.log('✔ Test 18: Missing Origin header follows security policy and proceeds to auth/controller');
 
+    // Test 19: Arbitrary *.onrender.com origin is strictly blocked with 403 Forbidden
+    const evilRenderRes = await fetch(`${BASE_URL}/api/leads/507f1f77bcf86cd799439011/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Host': 'doon-anandam.onrender.com',
+        'X-Forwarded-Proto': 'https',
+        Origin: 'https://evil-tenant.onrender.com',
+        Cookie: testAuthCookie,
+      },
+      body: JSON.stringify({ status: 'contacted' }),
+    });
+    assert(evilRenderRes.status === 403, `Expected 403 for untrusted onrender origin, got ${evilRenderRes.status}`);
+    console.log('✔ Test 19: Arbitrary *.onrender.com cross-origin request strictly blocked with 403');
+
+    // Test 20: Login response sets SameSite=Lax cookie attribute
+    const { getAuthCookieOptions: getCookieOpts } = await import('../src/utils/jwt.js');
+    const opts = getCookieOpts();
+    assert(opts.sameSite === 'lax', `Expected sameSite to be lax, got ${opts.sameSite}`);
+    console.log('✔ Test 20: Verified getAuthCookieOptions specifies SameSite=lax for single-origin security');
+
     console.log('\n=============================================================');
-    console.log('🎉 ALL 18 SINGLE-SERVICE SERVING & ROUTING TESTS PASSED!');
+    console.log('🎉 ALL 20 SINGLE-SERVICE SERVING & ROUTING TESTS PASSED!');
     console.log('=============================================================\n');
   } finally {
     if (server) {

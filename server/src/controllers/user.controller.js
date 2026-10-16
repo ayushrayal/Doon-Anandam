@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
+import { invalidateAnalyticsCache } from './analytics.controller.js';
 
 /**
  * GET /api/users
@@ -119,6 +120,8 @@ export const createUser = async (req, res, next) => {
       isActive: true,
     });
 
+    invalidateAnalyticsCache();
+
     res.status(201).json({
       success: true,
       message: 'User created successfully.',
@@ -168,6 +171,7 @@ export const updateUser = async (req, res, next) => {
     if (role) user.role = role;
 
     await user.save();
+    invalidateAnalyticsCache();
 
     res.status(200).json({
       success: true,
@@ -224,6 +228,7 @@ export const updateUserStatus = async (req, res, next) => {
 
     user.isActive = isActive;
     await user.save();
+    invalidateAnalyticsCache();
 
     res.status(200).json({
       success: true,

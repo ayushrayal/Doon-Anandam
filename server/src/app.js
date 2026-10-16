@@ -65,13 +65,13 @@ app.use(
   })
 );
 
-// Global API rate limiting for DoS and volumetric protection
-app.use('/api', apiLimiter);
-
 // Body and cookie parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// Global API rate limiting for DoS and volumetric protection
+app.use('/api', apiLimiter);
 
 // 1. API routes mounted first
 app.use('/api', apiRouter);
