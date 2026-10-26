@@ -144,3 +144,40 @@ export const createActivitySchema = z.object({
     .max(2000, 'Activity notes cannot exceed 2000 characters'),
   metadata: z.record(z.any()).optional().default({}),
 });
+
+/**
+ * Validates bulk assignment request body.
+ * Accepts an array of 1 to 100 valid MongoDB ObjectIds and an eligible assignedTo user ID or null.
+ */
+export const bulkAssignSchema = z.object({
+  leadIds: z
+    .array(
+      z
+        .string()
+        .trim()
+        .regex(/^[0-9a-fA-F]{24}$/, 'Invalid lead ID format')
+    )
+    .min(1, 'At least one lead ID must be provided')
+    .max(100, 'Cannot bulk assign more than 100 leads per request'),
+  assignedTo: z
+    .string()
+    .trim()
+    .regex(/^[0-9a-fA-F]{24}$/, 'Invalid user ID format for assignment')
+    .nullable(),
+});
+
+/**
+ * Validates bulk deletion request body.
+ * Accepts an array of 1 to 100 valid MongoDB ObjectIds.
+ */
+export const bulkDeleteSchema = z.object({
+  leadIds: z
+    .array(
+      z
+        .string()
+        .trim()
+        .regex(/^[0-9a-fA-F]{24}$/, 'Invalid lead ID format')
+    )
+    .min(1, 'At least one lead ID must be provided')
+    .max(100, 'Cannot bulk delete more than 100 leads per request'),
+});

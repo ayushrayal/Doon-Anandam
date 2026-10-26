@@ -2,6 +2,8 @@ import { Router } from 'express';
 import {
   getLeads,
   exportLeadsExcel,
+  bulkAssignLeads,
+  bulkDeleteLeads,
   getLeadById,
   updateLeadStatus,
   assignLead,
@@ -18,6 +20,8 @@ import { validateBody, validateQuery } from '../middleware/validate.js';
 import {
   leadQuerySchema,
   leadExportQuerySchema,
+  bulkAssignSchema,
+  bulkDeleteSchema,
   updateLeadStatusSchema,
   assignLeadSchema,
   scheduleFollowUpSchema,
@@ -35,6 +39,22 @@ router.get('/', validateQuery(leadQuerySchema), getLeads);
 
 // 1b. Export leads to Excel matching active filters (omitting pagination)
 router.get('/export', validateQuery(leadExportQuerySchema), exportLeadsExcel);
+
+// 1c. Bulk Actions for regular leads (Admin only)
+router.post(
+  '/bulk/assign',
+  authorize(['admin']),
+  verifyOrigin,
+  validateBody(bulkAssignSchema),
+  bulkAssignLeads
+);
+router.post(
+  '/bulk/delete',
+  authorize(['admin']),
+  verifyOrigin,
+  validateBody(bulkDeleteSchema),
+  bulkDeleteLeads
+);
 
 // 2. Admin-only manual synchronization endpoint
 router.post('/sync', authorize(['admin']), verifyOrigin, syncLeads);

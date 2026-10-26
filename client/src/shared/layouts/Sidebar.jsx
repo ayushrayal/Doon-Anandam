@@ -1,7 +1,7 @@
 import React from 'react';
 import { useAuth } from '../../features/auth/index.js';
 import { useRouter } from '../../app/routing/RouterContext.jsx';
-import { IconDashboard, IconUsers, IconBuilding, IconClose, IconLeads } from '../components/Icons.jsx';
+import { IconDashboard, IconUsers, IconBuilding, IconClose, IconLeads, IconFileSpreadsheet } from '../components/Icons.jsx';
 import './Sidebar.scss';
 
 export function Sidebar({ isOpen, onClose }) {
@@ -60,6 +60,18 @@ export function Sidebar({ isOpen, onClose }) {
             <IconLeads size={18} className="nav-item__icon" />
             <span className="nav-item__label">Leads</span>
           </button>
+
+          {isAdmin && (
+            <button
+              type="button"
+              className={`nav-item ${currentPath === '/import' ? 'nav-item--active' : ''}`}
+              onClick={() => handleNav('/import')}
+            >
+              <span className="nav-item__indicator" aria-hidden="true" />
+              <IconFileSpreadsheet size={18} className="nav-item__icon" />
+              <span className="nav-item__label">Excel Import</span>
+            </button>
+          )}
 
           {isAdmin && (
             <button

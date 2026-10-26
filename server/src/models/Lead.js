@@ -135,6 +135,29 @@ const leadSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    importBatchId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ImportBatch',
+      default: null,
+    },
+    importedAt: {
+      type: Date,
+      default: null,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
   },
   {
     timestamps: true,

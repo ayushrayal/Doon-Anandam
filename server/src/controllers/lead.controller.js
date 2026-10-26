@@ -92,7 +92,9 @@ export async function buildLeadQueryFilter(query, user) {
   } = query;
 
   // 1. Account isolation: scope to configured business account
-  const filter = {};
+  const filter = {
+    isDeleted: { $ne: true },
+  };
   if (env.WINDSOR_ACCOUNT_ID) {
     filter.accountId = env.WINDSOR_ACCOUNT_ID;
   }
@@ -512,7 +514,7 @@ export const getLeadById = async (req, res, next) => {
       });
     }
 
-    const filter = { _id: id };
+    const filter = { _id: id, isDeleted: { $ne: true } };
     if (env.WINDSOR_ACCOUNT_ID) {
       filter.accountId = env.WINDSOR_ACCOUNT_ID;
     }
@@ -559,7 +561,7 @@ export const updateLeadStatus = async (req, res, next) => {
       });
     }
 
-    const filter = { _id: id };
+    const filter = { _id: id, isDeleted: { $ne: true } };
     if (env.WINDSOR_ACCOUNT_ID) {
       filter.accountId = env.WINDSOR_ACCOUNT_ID;
     }
@@ -667,7 +669,7 @@ export const assignLead = async (req, res, next) => {
       });
     }
 
-    const filter = { _id: id };
+    const filter = { _id: id, isDeleted: { $ne: true } };
     if (env.WINDSOR_ACCOUNT_ID) {
       filter.accountId = env.WINDSOR_ACCOUNT_ID;
     }
@@ -772,7 +774,7 @@ export const scheduleFollowUp = async (req, res, next) => {
       });
     }
 
-    const filter = { _id: id };
+    const filter = { _id: id, isDeleted: { $ne: true } };
     if (env.WINDSOR_ACCOUNT_ID) {
       filter.accountId = env.WINDSOR_ACCOUNT_ID;
     }
@@ -850,7 +852,7 @@ export const completeFollowUp = async (req, res, next) => {
       });
     }
 
-    const filter = { _id: id };
+    const filter = { _id: id, isDeleted: { $ne: true } };
     if (env.WINDSOR_ACCOUNT_ID) {
       filter.accountId = env.WINDSOR_ACCOUNT_ID;
     }
@@ -924,7 +926,7 @@ export const getLeadActivities = async (req, res, next) => {
       });
     }
 
-    const filter = { _id: id };
+    const filter = { _id: id, isDeleted: { $ne: true } };
     if (env.WINDSOR_ACCOUNT_ID) {
       filter.accountId = env.WINDSOR_ACCOUNT_ID;
     }
@@ -971,7 +973,7 @@ export const createLeadActivity = async (req, res, next) => {
       });
     }
 
-    const filter = { _id: id };
+    const filter = { _id: id, isDeleted: { $ne: true } };
     if (env.WINDSOR_ACCOUNT_ID) {
       filter.accountId = env.WINDSOR_ACCOUNT_ID;
     }
@@ -1034,5 +1036,170 @@ export const syncLeads = async (req, res, next) => {
       success: false,
       message: sanitizedMessage,
     });
+  }
+};
+
+/**
+ * POST /api/leads/bulk/assign
+ * Bulk assign or unassign multiple regular leads to an active sales representative or admin.
+ * Admin-only operation.
+ */
+export const bulkAssignLeads = async (req, res, next) => {
+  try {
+    const { leadIds, assignedTo } = req.body;
+    const uniqueLeadIds = [...new Set(leadIds)];
+
+    let targetUser = null;
+    if (assignedTo !== null) {
+      targetUser = await User.findById(assignedTo);
+      if (!targetUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Assigned user does not exist.',
+        });
+      }
+      if (!targetUser.isActive) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot assign leads to a deactivated user.',
+        });
+      }
+      if (!['admin', 'sales_executive'].includes(targetUser.role)) {
+        return res.status(400).json({
+          success: false,
+          message: `Cannot assign leads to user with role '${targetUser.role}'.`,
+        });
+      }
+    }
+
+    const filter = {
+      _id: { $in: uniqueLeadIds },
+      isDeleted: { $ne: true },
+    };
+    if (env.WINDSOR_ACCOUNT_ID) {
+      filter.accountId = env.WINDSOR_ACCOUNT_ID;
+    }
+
+    const leadsToUpdate = await Lead.find(filter).select('_id accountId assignedTo');
+    const foundIdSet = new Set(leadsToUpdate.map((l) => l._id.toString()));
+    const successfulIds = [];
+    const failedIds = uniqueLeadIds.filter((id) => !foundIdSet.has(id));
+
+    if (leadsToUpdate.length > 0) {
+      const targetId = targetUser ? targetUser._id : null;
+      await Lead.updateMany(
+        { _id: { $in: leadsToUpdate.map((l) => l._id) } },
+        { $set: { assignedTo: targetId } }
+      );
+      successfulIds.push(...leadsToUpdate.map((l) => l._id.toString()));
+
+      const activityDocs = leadsToUpdate.map((l) => ({
+        leadId: l._id,
+        leadModel: 'Lead',
+        accountId: l.accountId,
+        type: 'note',
+        summary: targetUser
+          ? `Lead assigned to ${targetUser.name} (${targetUser.role === 'admin' ? 'Admin' : 'Sales Representative'}) via bulk action.`
+          : 'Lead unassigned via bulk action.',
+        performedBy: req.user._id,
+        metadata: { assignedTo: targetId, bulk: true },
+      }));
+
+      try {
+        await Activity.insertMany(activityDocs);
+      } catch (actErr) {
+        console.error('[Activity Error] Failed to insert bulk assign activities:', actErr.message);
+      }
+
+      invalidateAnalyticsCache(leadsToUpdate[0].accountId);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: targetUser
+        ? `Assigned ${successfulIds.length} lead${successfulIds.length === 1 ? '' : 's'} to ${targetUser.name}.`
+        : `Unassigned ${successfulIds.length} lead${successfulIds.length === 1 ? '' : 's'}.`,
+      data: {
+        requestedCount: uniqueLeadIds.length,
+        successCount: successfulIds.length,
+        failedCount: failedIds.length,
+        successfulIds,
+        failedIds,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/leads/bulk/delete
+ * Bulk soft-delete multiple regular leads.
+ * Admin-only operation.
+ */
+export const bulkDeleteLeads = async (req, res, next) => {
+  try {
+    const { leadIds } = req.body;
+    const uniqueLeadIds = [...new Set(leadIds)];
+
+    const filter = {
+      _id: { $in: uniqueLeadIds },
+      isDeleted: { $ne: true },
+    };
+    if (env.WINDSOR_ACCOUNT_ID) {
+      filter.accountId = env.WINDSOR_ACCOUNT_ID;
+    }
+
+    const leadsToDelete = await Lead.find(filter).select('_id accountId');
+    const foundIdSet = new Set(leadsToDelete.map((l) => l._id.toString()));
+    const successfulIds = [];
+    const failedIds = uniqueLeadIds.filter((id) => !foundIdSet.has(id));
+
+    if (leadsToDelete.length > 0) {
+      const now = new Date();
+      await Lead.updateMany(
+        { _id: { $in: leadsToDelete.map((l) => l._id) } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: now,
+            deletedBy: req.user._id,
+          },
+        }
+      );
+      successfulIds.push(...leadsToDelete.map((l) => l._id.toString()));
+
+      const activityDocs = leadsToDelete.map((l) => ({
+        leadId: l._id,
+        leadModel: 'Lead',
+        accountId: l.accountId,
+        type: 'note',
+        summary: 'Lead soft-deleted via bulk action.',
+        performedBy: req.user._id,
+        metadata: { deletedAt: now, bulk: true },
+      }));
+
+      try {
+        await Activity.insertMany(activityDocs);
+      } catch (actErr) {
+        console.error('[Activity Error] Failed to insert bulk delete activities:', actErr.message);
+      }
+
+      invalidateAnalyticsCache(leadsToDelete[0].accountId);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Deleted ${successfulIds.length} lead${successfulIds.length === 1 ? '' : 's'} successfully.`,
+      data: {
+        requestedCount: uniqueLeadIds.length,
+        successCount: successfulIds.length,
+        failedCount: failedIds.length,
+        successfulIds,
+        failedIds,
+      },
+    });
+  } catch (err) {
+    next(err);
   }
 };

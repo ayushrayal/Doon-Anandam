@@ -6,6 +6,7 @@ import { LoginPage } from '../features/auth/index.js';
 import { DashboardPage } from '../features/dashboard/index.js';
 import { UsersPage } from '../features/users/index.js';
 import { LeadsPage } from '../features/leads/index.js';
+import { ImportPage } from '../features/import/index.js';
 import { AppLayout } from '../shared/layouts/AppLayout.jsx';
 import { LoadingState } from '../shared/components/LoadingState.jsx';
 import './App.scss';
@@ -37,6 +38,23 @@ function AppContent() {
     return (
       <AppLayout title="Lead Management">
         <LeadsPage />
+      </AppLayout>
+    );
+  }
+
+  // Route: Excel Lead Import (Admin only)
+  if (currentPath === '/import') {
+    if (!isAdmin) {
+      navigate('/dashboard');
+      return (
+        <AppLayout title="Dashboard">
+          <DashboardPage />
+        </AppLayout>
+      );
+    }
+    return (
+      <AppLayout title="Excel Lead Import">
+        <ImportPage />
       </AppLayout>
     );
   }

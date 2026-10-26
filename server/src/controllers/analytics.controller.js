@@ -154,7 +154,9 @@ export const getDashboardAnalytics = async (req, res, next) => {
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
     // 1. Construct base match query for account isolation and role scoping
-    const baseMatch = {};
+    const baseMatch = {
+      isDeleted: { $ne: true },
+    };
     if (env.WINDSOR_ACCOUNT_ID) {
       baseMatch.accountId = env.WINDSOR_ACCOUNT_ID;
     }
@@ -434,6 +436,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
           $match: {
             ...(env.WINDSOR_ACCOUNT_ID ? { accountId: env.WINDSOR_ACCOUNT_ID } : {}),
             assignedTo: { $ne: null },
+            isDeleted: { $ne: true },
           },
         },
         {

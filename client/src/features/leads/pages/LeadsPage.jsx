@@ -21,6 +21,8 @@ import {
   IconCheckCircle,
   IconClock,
   IconDownload,
+  IconUsers,
+  IconTrash,
 } from '../../../shared/components/Icons.jsx';
 import './LeadsPage.scss';
 
@@ -86,6 +88,13 @@ export function LeadsPage() {
 
   // Selected lead for drawer
   const [selectedLeadId, setSelectedLeadId] = useState(null);
+
+  // Bulk Selection State
+  const [selectedLeadIds, setSelectedLeadIds] = useState([]);
+  const [bulkAssignModalOpen, setBulkAssignModalOpen] = useState(false);
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+  const [bulkAssignTarget, setBulkAssignTarget] = useState('');
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   // Active users list (for admin assignment dropdown)
   const [activeUsers, setActiveUsers] = useState([]);
@@ -202,6 +211,83 @@ export function LeadsPage() {
   useEffect(() => {
     fetchLeads();
   }, [fetchLeads]);
+
+  // Clear bulk selection whenever filters, page, or search change
+  useEffect(() => {
+    setSelectedLeadIds([]);
+  }, [page, debouncedSearch, statusFilter, sourceFilter, assignedFilter, dateFilter, customStartDate, customEndDate, followUpFilter, sortBy, sortOrder]);
+
+  // Bulk Selection Handlers
+  const toggleLeadSelection = (leadId) => {
+    setSelectedLeadIds((prev) =>
+      prev.includes(leadId) ? prev.filter((id) => id !== leadId) : [...prev, leadId]
+    );
+  };
+
+  const handleSelectAllCurrentPage = () => {
+    const allSelected = leads.length > 0 && leads.every((l) => selectedLeadIds.includes(l._id));
+    if (allSelected) {
+      setSelectedLeadIds([]);
+    } else {
+      setSelectedLeadIds(leads.map((l) => l._id));
+    }
+  };
+
+  const handleConfirmBulkAssign = async () => {
+    if (!bulkAssignTarget || selectedLeadIds.length === 0 || bulkLoading) return;
+    setBulkLoading(true);
+    try {
+      const assignedToVal = bulkAssignTarget === 'unassigned' ? null : bulkAssignTarget;
+      const res = await apiFetch('/leads/bulk/assign', {
+        method: 'POST',
+        body: JSON.stringify({
+          leadIds: selectedLeadIds,
+          assignedTo: assignedToVal,
+        }),
+      });
+      setFeedback({
+        type: 'success',
+        message: res.message || `Assigned ${res.data?.successCount || selectedLeadIds.length} lead(s) successfully.`,
+      });
+      setBulkAssignModalOpen(false);
+      setSelectedLeadIds([]);
+      fetchLeads();
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Failed to assign selected leads.',
+      });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedLeadIds.length === 0 || bulkLoading) return;
+    setBulkLoading(true);
+    try {
+      const res = await apiFetch('/leads/bulk/delete', {
+        method: 'POST',
+        body: JSON.stringify({
+          leadIds: selectedLeadIds,
+        }),
+      });
+      setFeedback({
+        type: 'success',
+        message: res.message || `Deleted ${res.data?.successCount || selectedLeadIds.length} lead(s) successfully.`,
+      });
+      setBulkDeleteModalOpen(false);
+      setSelectedLeadIds([]);
+      fetchLeads();
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Failed to delete selected leads.',
+      });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
 
   // Handle lead update from Drawer
   const handleLeadUpdated = (updatedLead) => {
@@ -643,6 +729,15 @@ export function LeadsPage() {
             <table className="leads-table">
               <thead>
                 <tr>
+                  <th scope="col" className="col-checkbox">
+                    <input
+                      type="checkbox"
+                      className="row-checkbox"
+                      aria-label="Select all leads on current page"
+                      checked={leads.length > 0 && leads.every((l) => selectedLeadIds.includes(l._id))}
+                      onChange={handleSelectAllCurrentPage}
+                    />
+                  </th>
                   <th scope="col" className="col-name">Prospect Details</th>
                   <th scope="col" className="col-contact">Contact Channels</th>
                   <th scope="col" className="col-campaign">Attribution & Form</th>
@@ -661,7 +756,7 @@ export function LeadsPage() {
                   return (
                     <tr
                       key={lead._id}
-                      className="lead-row"
+                      className={`lead-row ${selectedLeadIds.includes(lead._id) ? 'lead-row--selected' : ''}`}
                       onClick={() => setSelectedLeadId(lead._id)}
                       tabIndex={0}
                       onKeyDown={(e) => {
@@ -671,6 +766,17 @@ export function LeadsPage() {
                         }
                       }}
                     >
+                      {/* Checkbox */}
+                      <td className="col-checkbox" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="row-checkbox"
+                          aria-label={`Select ${lead.fullName || 'lead'}`}
+                          checked={selectedLeadIds.includes(lead._id)}
+                          onChange={() => toggleLeadSelection(lead._id)}
+                        />
+                      </td>
+
                       {/* Name / Account */}
                       <td className="col-name">
                         <div className="prospect-info">
@@ -879,6 +985,157 @@ export function LeadsPage() {
           </div>
         )}
       </div>
+
+      {/* Floating Bulk Action Bar */}
+      {selectedLeadIds.length > 0 && (
+        <div className="bulk-action-bar">
+          <div className="bulk-action-bar__left">
+            <span className="bulk-selection-count">
+              <strong>{selectedLeadIds.length}</strong> lead{selectedLeadIds.length === 1 ? '' : 's'} selected
+            </span>
+            <button
+              type="button"
+              className="bulk-cancel-btn"
+              onClick={() => setSelectedLeadIds([])}
+            >
+              Cancel Selection
+            </button>
+          </div>
+          <div className="bulk-action-bar__actions">
+            {isAdmin && (
+              <>
+                <button
+                  type="button"
+                  className="bulk-action-btn bulk-action-btn--assign"
+                  onClick={() => {
+                    setBulkAssignTarget('');
+                    setBulkAssignModalOpen(true);
+                  }}
+                >
+                  <IconUsers size={16} />
+                  <span>Assign</span>
+                </button>
+                <button
+                  type="button"
+                  className="bulk-action-btn bulk-action-btn--delete"
+                  onClick={() => setBulkDeleteModalOpen(true)}
+                >
+                  <IconTrash size={16} />
+                  <span>Delete</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Assign Modal */}
+      {bulkAssignModalOpen && (
+        <div className="modal-overlay" onClick={() => !bulkLoading && setBulkAssignModalOpen(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Bulk Assign Leads</h3>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setBulkAssignModalOpen(false)}
+                disabled={bulkLoading}
+              >
+                <IconClose size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="modal-desc">
+                Select an executive to assign to the <strong>{selectedLeadIds.length}</strong> selected lead(s).
+              </p>
+              <div className="modal-form-group">
+                <label htmlFor="bulk-assign-user-select" className="modal-label">Assign To</label>
+                <select
+                  id="bulk-assign-user-select"
+                  className="modal-select"
+                  value={bulkAssignTarget}
+                  onChange={(e) => setBulkAssignTarget(e.target.value)}
+                  disabled={bulkLoading}
+                >
+                  <option value="">-- Choose Executive --</option>
+                  <option value="unassigned">Unassign (Remove Assignment)</option>
+                  {activeUsers.map((u) => (
+                    <option key={u.id || u._id} value={u.id || u._id}>
+                      {u.name} ({u.role === 'admin' ? 'Admin' : 'Sales Representative'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="modal-btn modal-btn--secondary"
+                onClick={() => setBulkAssignModalOpen(false)}
+                disabled={bulkLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="modal-btn modal-btn--primary"
+                onClick={handleConfirmBulkAssign}
+                disabled={!bulkAssignTarget || bulkLoading}
+              >
+                {bulkLoading ? 'Assigning...' : 'Confirm Assignment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Modal */}
+      {bulkDeleteModalOpen && (
+        <div className="modal-overlay" onClick={() => !bulkLoading && setBulkDeleteModalOpen(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="modal-title">Delete Selected Leads</h3>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setBulkDeleteModalOpen(false)}
+                disabled={bulkLoading}
+              >
+                <IconClose size={18} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="modal-warning-box">
+                <IconAlertTriangle size={20} className="modal-warning-icon" />
+                <div>
+                  <strong>Warning:</strong> You are about to delete <strong>{selectedLeadIds.length}</strong> lead(s).
+                </div>
+              </div>
+              <p className="modal-desc">
+                These leads will be removed from your active CRM pipeline. Their activity history will be retained for audit purposes.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="modal-btn modal-btn--secondary"
+                onClick={() => setBulkDeleteModalOpen(false)}
+                disabled={bulkLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="modal-btn modal-btn--danger"
+                onClick={handleConfirmBulkDelete}
+                disabled={bulkLoading}
+              >
+                {bulkLoading ? 'Deleting...' : 'Confirm Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lead Details Slide-Over Drawer */}
       {selectedLeadId && (

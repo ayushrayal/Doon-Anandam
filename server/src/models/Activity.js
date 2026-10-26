@@ -16,9 +16,14 @@ const activitySchema = new mongoose.Schema(
   {
     leadId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'Lead',
+      refPath: 'leadModel',
       required: [true, 'Lead reference is required'],
       index: true,
+    },
+    leadModel: {
+      type: String,
+      enum: ['Lead', 'ImportedLead'],
+      default: 'Lead',
     },
     accountId: {
       type: String,
