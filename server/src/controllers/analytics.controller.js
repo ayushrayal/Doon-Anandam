@@ -86,7 +86,7 @@ export function getAnalyticsCacheEntry(key) {
  * Computes calendar date boundaries based on preset or explicit ISO dates.
  * Ensures strict date isolation with start of day (00:00:00.000) and end of day (23:59:59.999).
  */
-function computeDateBounds(preset, startDate, endDate) {
+export function computeDateBounds(preset, startDate, endDate) {
   const now = new Date();
 
   if (preset === 'today') {
@@ -259,7 +259,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
                         $and: [
                           { $ne: ['$status', 'converted'] },
                           { $ne: ['$status', 'lost'] },
-                          { $ne: ['$nextFollowUpDate', null] },
+                          { $eq: [{ $type: '$nextFollowUpDate' }, 'date'] },
                           { $lt: ['$nextFollowUpDate', startOfToday] },
                         ],
                       },
@@ -275,7 +275,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
                         $and: [
                           { $ne: ['$status', 'converted'] },
                           { $ne: ['$status', 'lost'] },
-                          { $ne: ['$nextFollowUpDate', null] },
+                          { $eq: [{ $type: '$nextFollowUpDate' }, 'date'] },
                           { $gte: ['$nextFollowUpDate', startOfToday] },
                           { $lte: ['$nextFollowUpDate', endOfToday] },
                         ],
@@ -292,7 +292,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
                         $and: [
                           { $ne: ['$status', 'converted'] },
                           { $ne: ['$status', 'lost'] },
-                          { $ne: ['$nextFollowUpDate', null] },
+                          { $eq: [{ $type: '$nextFollowUpDate' }, 'date'] },
                           { $gt: ['$nextFollowUpDate', endOfToday] },
                         ],
                       },
@@ -308,7 +308,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
                         $and: [
                           { $ne: ['$status', 'converted'] },
                           { $ne: ['$status', 'lost'] },
-                          { $eq: ['$nextFollowUpDate', null] },
+                          { $in: [{ $type: '$nextFollowUpDate' }, ['missing', 'null']] },
                         ],
                       },
                       1,
@@ -378,6 +378,8 @@ export const getDashboardAnalytics = async (req, res, next) => {
     }
     if (req.user.role === 'sales_executive') {
       completedFollowUpsFilter.performedBy = req.user._id;
+    } else if (assignedTo && assignedTo !== 'all' && mongoose.Types.ObjectId.isValid(assignedTo)) {
+      completedFollowUpsFilter.performedBy = new mongoose.Types.ObjectId(assignedTo);
     }
     if (dateBounds.start || dateBounds.end) {
       completedFollowUpsFilter.performedAt = {};
@@ -387,6 +389,10 @@ export const getDashboardAnalytics = async (req, res, next) => {
     const followUpsCompletedInPeriod = await Activity.countDocuments(completedFollowUpsFilter).maxTimeMS(
       ANALYTICS_QUERY_TIMEOUT_MS
     );
+    const uniqueLeadIdsCompletedInPeriod = await Activity.distinct('leadId', completedFollowUpsFilter).maxTimeMS(
+      ANALYTICS_QUERY_TIMEOUT_MS
+    );
+    const uniqueLeadsCompletedInPeriod = uniqueLeadIdsCompletedInPeriod.length;
 
     // 6. Pipeline Funnel Progression (Evaluated for the selected cohort)
     const pipelineFunnel = [
@@ -461,7 +467,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
                   {
                     $and: [
                       { $in: ['$status', ['new', 'contacted', 'follow_up', 'qualified']] },
-                      { $ne: ['$nextFollowUpDate', null] },
+                      { $eq: [{ $type: '$nextFollowUpDate' }, 'date'] },
                       { $lt: ['$nextFollowUpDate', startOfToday] },
                     ],
                   },
@@ -476,7 +482,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
                   {
                     $and: [
                       { $in: ['$status', ['new', 'contacted', 'follow_up', 'qualified']] },
-                      { $ne: ['$nextFollowUpDate', null] },
+                      { $eq: [{ $type: '$nextFollowUpDate' }, 'date'] },
                       { $gte: ['$nextFollowUpDate', startOfToday] },
                       { $lte: ['$nextFollowUpDate', endOfToday] },
                     ],
@@ -559,7 +565,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
                   {
                     $and: [
                       { $in: ['$status', ['new', 'contacted', 'follow_up', 'qualified']] },
-                      { $ne: ['$nextFollowUpDate', null] },
+                      { $eq: [{ $type: '$nextFollowUpDate' }, 'date'] },
                       { $lt: ['$nextFollowUpDate', startOfToday] },
                     ],
                   },
@@ -574,7 +580,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
                   {
                     $and: [
                       { $in: ['$status', ['new', 'contacted', 'follow_up', 'qualified']] },
-                      { $ne: ['$nextFollowUpDate', null] },
+                      { $eq: [{ $type: '$nextFollowUpDate' }, 'date'] },
                       { $gte: ['$nextFollowUpDate', startOfToday] },
                       { $lte: ['$nextFollowUpDate', endOfToday] },
                     ],
@@ -671,6 +677,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
       historicalActivity: {
         conversionsInPeriod: verifiedConversionsInPeriod,
         followUpsCompletedInPeriod,
+        uniqueLeadsCompletedInPeriod,
       },
       allTimePipeline: {
         total: allTimeTotal,
@@ -687,6 +694,7 @@ export const getDashboardAnalytics = async (req, res, next) => {
         dueToday: followUpStats.dueToday,
         upcoming: followUpStats.upcoming,
         none: followUpStats.none,
+        completedInPeriod: uniqueLeadsCompletedInPeriod,
       },
       pipelineFunnel,
       executiveBreakdown,

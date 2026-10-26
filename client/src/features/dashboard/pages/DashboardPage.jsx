@@ -5,6 +5,7 @@ import { apiFetch } from '../../../shared/lib/api.js';
 import { StatusBadge } from '../../../shared/components/StatusBadge.jsx';
 import { LoadingState } from '../../../shared/components/LoadingState.jsx';
 import { EmptyState } from '../../../shared/components/EmptyState.jsx';
+import { formatSourceLabel } from '../../../shared/lib/formatters.js';
 import {
   IconArrowRight,
   IconClock,
@@ -100,6 +101,21 @@ export function DashboardPage() {
     navigate(`/leads?${filterQuery}`);
   };
 
+  const handleWorkloadDrillDown = (followUpStatus) => {
+    const params = new URLSearchParams({ followUpStatus });
+    if (followUpStatus === 'completed') {
+      params.set('dateFilter', preset);
+      if (preset === 'custom') {
+        if (startDate) params.set('startDate', startDate);
+        if (endDate) params.set('endDate', endDate);
+      }
+    }
+    if (isAdmin && assignedTo && assignedTo !== 'all') {
+      params.set('assignedTo', assignedTo);
+    }
+    drillDownToLeads(params.toString());
+  };
+
   const cohort = data?.cohort || {
     total: 0,
     statusCounts: { new: 0, contacted: 0, follow_up: 0, qualified: 0, converted: 0, lost: 0 },
@@ -125,6 +141,7 @@ export function DashboardPage() {
   const historicalActivity = data?.historicalActivity || {
     conversionsInPeriod: 0,
     followUpsCompletedInPeriod: 0,
+    uniqueLeadsCompletedInPeriod: 0,
   };
 
   const funnel = data?.pipelineFunnel || [];
@@ -323,10 +340,10 @@ export function DashboardPage() {
             <div className="workload-grid">
               <div
                 className="workload-tile workload-tile--due-today clickable"
-                onClick={() => drillDownToLeads('followUpStatus=today')}
+                onClick={() => handleWorkloadDrillDown('today')}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => e.key === 'Enter' && drillDownToLeads('followUpStatus=today')}
+                onKeyDown={(e) => e.key === 'Enter' && handleWorkloadDrillDown('today')}
               >
                 <div className="workload-tile__badge">DUE TODAY</div>
                 <div className="workload-tile__value">{workload.dueToday}</div>
@@ -335,10 +352,10 @@ export function DashboardPage() {
 
               <div
                 className="workload-tile workload-tile--overdue clickable"
-                onClick={() => drillDownToLeads('followUpStatus=overdue')}
+                onClick={() => handleWorkloadDrillDown('overdue')}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => e.key === 'Enter' && drillDownToLeads('followUpStatus=overdue')}
+                onKeyDown={(e) => e.key === 'Enter' && handleWorkloadDrillDown('overdue')}
               >
                 <div className="workload-tile__badge">OVERDUE</div>
                 <div className="workload-tile__value">{workload.overdue}</div>
@@ -347,22 +364,34 @@ export function DashboardPage() {
 
               <div
                 className="workload-tile workload-tile--upcoming clickable"
-                onClick={() => drillDownToLeads('followUpStatus=upcoming')}
+                onClick={() => handleWorkloadDrillDown('upcoming')}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => e.key === 'Enter' && drillDownToLeads('followUpStatus=upcoming')}
+                onKeyDown={(e) => e.key === 'Enter' && handleWorkloadDrillDown('upcoming')}
               >
                 <div className="workload-tile__badge">UPCOMING</div>
                 <div className="workload-tile__value">{workload.upcoming}</div>
                 <div className="workload-tile__desc">Future follow-up dates</div>
               </div>
 
-              <div className="workload-tile workload-tile--completed">
+              <div
+                className="workload-tile workload-tile--completed clickable"
+                onClick={() => handleWorkloadDrillDown('completed')}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && handleWorkloadDrillDown('completed')}
+              >
                 <div className="workload-tile__badge">COMPLETED IN PERIOD</div>
                 <div className="workload-tile__value">
-                  {historicalActivity.followUpsCompletedInPeriod}
+                  {historicalActivity.uniqueLeadsCompletedInPeriod ?? historicalActivity.followUpsCompletedInPeriod}
                 </div>
-                <div className="workload-tile__desc">Follow-ups finalized during timeframe</div>
+                <div className="workload-tile__desc">
+                  {historicalActivity.followUpsCompletedInPeriod &&
+                  historicalActivity.uniqueLeadsCompletedInPeriod &&
+                  historicalActivity.followUpsCompletedInPeriod > historicalActivity.uniqueLeadsCompletedInPeriod
+                    ? `${historicalActivity.uniqueLeadsCompletedInPeriod} leads (${historicalActivity.followUpsCompletedInPeriod} actions)`
+                    : 'Follow-ups finalized during timeframe'}
+                </div>
               </div>
             </div>
           </section>
@@ -576,7 +605,7 @@ export function DashboardPage() {
                         <div key={src.source} className="source-item">
                           <div className="source-meta">
                             <span className="source-name">
-                              {src.source.replace(/_/g, ' ').toUpperCase()}
+                              {formatSourceLabel(src.source)}
                             </span>
                             <span className="source-count">
                               {src.count} <small>({pct}%)</small>

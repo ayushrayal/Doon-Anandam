@@ -30,8 +30,10 @@ export const leadQuerySchema = z.object({
   search: z.string().trim().max(100, 'Search term too long').optional(),
   startDate: z.string().trim().optional(),
   endDate: z.string().trim().optional(),
+  dateFilter: z.string().trim().optional(),
+  preset: z.string().trim().optional(),
   followUpStatus: z
-    .enum(['all', 'overdue', 'today', 'upcoming', 'scheduled', 'none'])
+    .enum(['all', 'overdue', 'today', 'upcoming', 'scheduled', 'none', 'completed'])
     .optional()
     .default('all'),
   sortBy: z

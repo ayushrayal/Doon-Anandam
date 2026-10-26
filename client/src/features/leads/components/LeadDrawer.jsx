@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../../../shared/lib/api.js';
 import { StatusBadge } from '../../../shared/components/StatusBadge.jsx';
+import { formatSourceLabel } from '../../../shared/lib/formatters.js';
 import {
   IconClose,
   IconPhone,
@@ -992,6 +993,12 @@ export function LeadDrawer({ leadId, onClose, onLeadUpdated, activeUsers = [], i
                   <span className="drawer-card__title">Campaign & Marketing Attribution</span>
                 </div>
                 <div className="attribute-grid">
+                  <div className="attribute-item">
+                    <span className="attribute-item__label">Acquisition Channel</span>
+                    <span className="attribute-item__value">
+                      {formatSourceLabel(lead.source)}
+                    </span>
+                  </div>
                   <div className="attribute-item">
                     <span className="attribute-item__label">Campaign</span>
                     <span className="attribute-item__value" title={lead.campaignName || '—'}>

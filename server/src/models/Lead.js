@@ -21,8 +21,14 @@ const leadSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Lead source identifier is required'],
       trim: true,
-      default: 'facebook_leads',
+      default: 'meta',
       maxlength: [60, 'Lead source cannot exceed 60 characters'],
+    },
+    syncProvider: {
+      type: String,
+      trim: true,
+      default: 'windsor.ai',
+      maxlength: [60, 'Sync provider cannot exceed 60 characters'],
     },
     accountId: {
       type: String,

@@ -5,13 +5,14 @@ import Activity from '../models/Activity.js';
 import { env } from '../config/env.js';
 import { ALLOWED_STATUS_TRANSITIONS } from '../schemas/lead.schema.js';
 import { syncFacebookLeads } from '../services/leadSync.service.js';
-import { invalidateAnalyticsCache } from './analytics.controller.js';
+import { invalidateAnalyticsCache, computeDateBounds } from './analytics.controller.js';
 
 /**
  * Computes the operational follow-up indicator for a given follow-up date.
  * Returns: 'overdue' | 'today' | 'upcoming' | 'none'
  */
-export function computeFollowUpIndicator(nextFollowUpDate) {
+export function computeFollowUpIndicator(nextFollowUpDate, status = null) {
+  if (status === 'converted' || status === 'lost') return 'none';
   if (!nextFollowUpDate) return 'none';
   const target = new Date(nextFollowUpDate);
   if (isNaN(target.getTime())) return 'none';
@@ -27,6 +28,18 @@ export function computeFollowUpIndicator(nextFollowUpDate) {
   } else {
     return 'upcoming';
   }
+}
+
+/**
+ * Strips internal integration provider metadata (syncProvider) and attaches
+ * dynamic operational indicators before returning leads to the client.
+ */
+export function formatLeadResponse(leadDoc) {
+  if (!leadDoc) return null;
+  const leadObj = leadDoc.toObject ? leadDoc.toObject() : { ...leadDoc };
+  delete leadObj.syncProvider;
+  leadObj.followUpIndicator = computeFollowUpIndicator(leadObj.nextFollowUpDate, leadObj.status);
+  return leadObj;
 }
 
 /**
@@ -50,6 +63,8 @@ export const getLeads = async (req, res, next) => {
       search,
       startDate,
       endDate,
+      dateFilter,
+      preset,
       followUpStatus = 'all',
       sortBy = 'createdAt',
       sortOrder = 'desc',
@@ -78,37 +93,83 @@ export const getLeads = async (req, res, next) => {
       filter.status = status;
     }
 
-    // 4. Source filter
-    if (source && source.trim()) {
-      filter.source = source.trim();
+    // 4. Source filter (supports 'meta' mapping to Facebook/Meta lead channels)
+    if (source && source.trim() && source !== 'all') {
+      const src = source.trim();
+      if (src.toLowerCase() === 'meta') {
+        filter.source = { $in: ['meta', 'facebook_leads', 'facebook', 'facebook_ads'] };
+      } else {
+        filter.source = src;
+      }
     }
 
-    // 5. Follow-up status filter
+    // 5. Follow-up status filter (reconciled with Dashboard operational workload definitions)
     if (followUpStatus && followUpStatus !== 'all') {
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-      if (followUpStatus === 'scheduled') {
-        filter.nextFollowUpDate = { $ne: null };
+      if (followUpStatus === 'completed') {
+        const datePreset = dateFilter || preset || 'all';
+        const dateBounds = computeDateBounds(datePreset, startDate, endDate);
+        const completedActivityFilter = {
+          type: 'follow_up_completed',
+        };
+        if (env.WINDSOR_ACCOUNT_ID) {
+          completedActivityFilter.accountId = env.WINDSOR_ACCOUNT_ID;
+        }
+        if (req.user.role === 'sales_executive') {
+          completedActivityFilter.performedBy = req.user._id;
+        } else if (req.user.role === 'admin' && assignedTo) {
+          if (assignedTo !== 'all' && mongoose.Types.ObjectId.isValid(assignedTo)) {
+            completedActivityFilter.performedBy = new mongoose.Types.ObjectId(assignedTo);
+          }
+        }
+        if (dateBounds.start || dateBounds.end) {
+          completedActivityFilter.performedAt = {};
+          if (dateBounds.start) completedActivityFilter.performedAt.$gte = dateBounds.start;
+          if (dateBounds.end) completedActivityFilter.performedAt.$lte = dateBounds.end;
+        }
+
+        const completedLeadIds = await Activity.distinct('leadId', completedActivityFilter);
+        filter._id = { $in: completedLeadIds };
+      } else if (followUpStatus === 'scheduled') {
+        filter.nextFollowUpDate = { $type: 'date' };
+        if (!filter.status) {
+          filter.status = { $nin: ['converted', 'lost'] };
+        }
       } else if (followUpStatus === 'none') {
-        filter.nextFollowUpDate = null;
+        filter.nextFollowUpDate = { $in: [null, undefined] };
+        if (!filter.status) {
+          filter.status = { $nin: ['converted', 'lost'] };
+        }
       } else if (followUpStatus === 'overdue') {
-        filter.nextFollowUpDate = { $ne: null, $lt: todayStart };
+        filter.nextFollowUpDate = { $type: 'date', $lt: todayStart };
+        if (!filter.status) {
+          filter.status = { $nin: ['converted', 'lost'] };
+        }
       } else if (followUpStatus === 'today') {
-        filter.nextFollowUpDate = { $gte: todayStart, $lte: todayEnd };
+        filter.nextFollowUpDate = { $type: 'date', $gte: todayStart, $lte: todayEnd };
+        if (!filter.status) {
+          filter.status = { $nin: ['converted', 'lost'] };
+        }
       } else if (followUpStatus === 'upcoming') {
-        filter.nextFollowUpDate = { $gt: todayEnd };
+        filter.nextFollowUpDate = { $type: 'date', $gt: todayEnd };
+        if (!filter.status) {
+          filter.status = { $nin: ['converted', 'lost'] };
+        }
       }
     }
 
     // 6. Date range filter on leadCreatedAt (or fallback to createdAt)
-    if (startDate || endDate) {
-      filter.leadCreatedAt = {};
+    // Only apply to leadCreatedAt when followUpStatus is NOT 'completed'
+    // (for 'completed', the date range filters follow-up completion in Activity)
+    if ((startDate || endDate) && followUpStatus !== 'completed') {
+      const dateCond = {};
       if (startDate) {
         const start = new Date(startDate);
         if (!isNaN(start.getTime())) {
-          filter.leadCreatedAt.$gte = start;
+          dateCond.$gte = start;
         }
       }
       if (endDate) {
@@ -117,11 +178,23 @@ export const getLeads = async (req, res, next) => {
           if (endDate.length === 10) {
             end.setUTCHours(23, 59, 59, 999);
           }
-          filter.leadCreatedAt.$lte = end;
+          dateCond.$lte = end;
         }
       }
-      if (Object.keys(filter.leadCreatedAt).length === 0) {
-        delete filter.leadCreatedAt;
+      if (Object.keys(dateCond).length > 0) {
+        const dateMatch = [
+          { leadCreatedAt: dateCond },
+          { leadCreatedAt: { $exists: false }, createdAt: dateCond },
+          { leadCreatedAt: null, createdAt: dateCond },
+        ];
+        if (filter.$or) {
+          filter.$and = filter.$and || [];
+          filter.$and.push({ $or: filter.$or });
+          filter.$and.push({ $or: dateMatch });
+          delete filter.$or;
+        } else {
+          filter.$or = dateMatch;
+        }
       }
     }
 
@@ -171,11 +244,8 @@ export const getLeads = async (req, res, next) => {
 
     const totalPages = Math.ceil(total / limitNum) || 1;
 
-    // Attach dynamic operational indicators
-    const leads = rawLeads.map((lead) => ({
-      ...lead,
-      followUpIndicator: computeFollowUpIndicator(lead.nextFollowUpDate),
-    }));
+    // Attach dynamic operational indicators and strip internal syncProvider
+    const leads = rawLeads.map(formatLeadResponse);
 
     return res.status(200).json({
       success: true,
@@ -242,11 +312,9 @@ export const getLeadById = async (req, res, next) => {
       });
     }
 
-    lead.followUpIndicator = computeFollowUpIndicator(lead.nextFollowUpDate);
-
     return res.status(200).json({
       success: true,
-      lead,
+      lead: formatLeadResponse(lead),
     });
   } catch (err) {
     next(err);
@@ -291,12 +359,10 @@ export const updateLeadStatus = async (req, res, next) => {
     if (currentStatus === targetStatus) {
       // No-op transition
       await lead.populate('assignedTo', '_id name email role');
-      const leadObj = lead.toObject();
-      leadObj.followUpIndicator = computeFollowUpIndicator(lead.nextFollowUpDate);
       return res.status(200).json({
         success: true,
         message: `Lead is already in '${targetStatus}' status.`,
-        lead: leadObj,
+        lead: formatLeadResponse(lead),
       });
     }
 
@@ -352,13 +418,10 @@ export const updateLeadStatus = async (req, res, next) => {
       console.error('[Activity Error] Failed to record status change activity:', actErr.message);
     }
 
-    const leadObj = lead.toObject();
-    leadObj.followUpIndicator = computeFollowUpIndicator(lead.nextFollowUpDate);
-
     return res.status(200).json({
       success: true,
       message: 'Lead status updated successfully.',
-      lead: leadObj,
+      lead: formatLeadResponse(lead),
     });
   } catch (err) {
     next(err);
@@ -446,13 +509,10 @@ export const assignLead = async (req, res, next) => {
       console.error('[Activity Error] Failed to record assignment activity:', actErr.message);
     }
 
-    const leadObj = lead.toObject();
-    leadObj.followUpIndicator = computeFollowUpIndicator(lead.nextFollowUpDate);
-
     return res.status(200).json({
       success: true,
       message: lead.assignedTo ? 'Lead assigned successfully.' : 'Lead unassigned successfully.',
-      lead: leadObj,
+      lead: formatLeadResponse(lead),
     });
   } catch (err) {
     next(err);
@@ -540,15 +600,12 @@ export const scheduleFollowUp = async (req, res, next) => {
       },
     });
 
-    const leadObj = lead.toObject();
-    leadObj.followUpIndicator = computeFollowUpIndicator(lead.nextFollowUpDate);
-
     return res.status(200).json({
       success: true,
       message: isReschedule
         ? 'Follow-up rescheduled successfully.'
         : 'Follow-up scheduled successfully.',
-      lead: leadObj,
+      lead: formatLeadResponse(lead),
     });
   } catch (err) {
     next(err);
@@ -620,13 +677,10 @@ export const completeFollowUp = async (req, res, next) => {
       },
     });
 
-    const leadObj = lead.toObject();
-    leadObj.followUpIndicator = 'none';
-
     return res.status(200).json({
       success: true,
       message: 'Follow-up marked as completed.',
-      lead: leadObj,
+      lead: formatLeadResponse(lead),
     });
   } catch (err) {
     next(err);

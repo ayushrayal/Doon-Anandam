@@ -65,6 +65,36 @@ export async function syncFacebookLeads({
 
     const bulkOperations = [];
 
+    // Pre-fetch existing leads to detect existing acquisition sources and avoid overwriting with unknown/windsor
+    const externalIds = [];
+    for (const raw of rawRecords) {
+      if (raw && raw.id) {
+        externalIds.push(String(raw.id).trim());
+      }
+    }
+
+    const existingLeadsMap = new Map();
+    if (externalIds.length > 0) {
+      const existingDocs = await Lead.find({
+        accountId,
+        externalLeadId: { $in: externalIds },
+      })
+        .select('_id externalLeadId source syncProvider')
+        .lean();
+      for (const doc of existingDocs) {
+        existingLeadsMap.set(doc.externalLeadId, doc);
+      }
+    }
+
+    const isKnownChannel = (src) =>
+      Boolean(
+        src &&
+          src !== 'unknown' &&
+          src !== 'windsor' &&
+          src !== 'windsor.ai' &&
+          src !== 'unspecified'
+      );
+
     for (const raw of rawRecords) {
       const validation = mapAndValidateLeadRecord(raw, accountId);
 
@@ -74,45 +104,81 @@ export async function syncFacebookLeads({
       }
 
       const { lead } = validation;
+      const existing = existingLeadsMap.get(lead.externalLeadId);
 
-      bulkOperations.push({
-        updateOne: {
-          filter: {
-            source: 'facebook_leads',
-            accountId: lead.accountId,
-            externalLeadId: lead.externalLeadId,
-          },
-          update: {
-            // Upstream data refreshed from connector
-            $set: {
-              accountName: lead.accountName,
-              fullName: lead.fullName,
-              email: lead.email,
-              phoneNumber: lead.phoneNumber,
-              formId: lead.formId,
-              formName: lead.formName,
-              campaignName: lead.campaignName,
-              campaignId: lead.campaignId,
-              adsetName: lead.adsetName,
-              adName: lead.adName,
-              leadCreatedAt: lead.leadCreatedAt,
+      let finalSource = lead.source;
+
+      if (existing) {
+        if (isKnownChannel(existing.source) && !isKnownChannel(lead.source)) {
+          // Do not overwrite a valid existing source with unknown or windsor
+          finalSource = existing.source;
+        } else if (isKnownChannel(lead.source)) {
+          finalSource = lead.source;
+        } else {
+          finalSource = existing.source || 'unknown';
+        }
+      } else {
+        if (!isKnownChannel(finalSource)) {
+          finalSource = 'unknown';
+        }
+      }
+
+      const updateSet = {
+        accountName: lead.accountName,
+        fullName: lead.fullName,
+        email: lead.email,
+        phoneNumber: lead.phoneNumber,
+        formId: lead.formId,
+        formName: lead.formName,
+        campaignName: lead.campaignName,
+        campaignId: lead.campaignId,
+        adsetName: lead.adsetName,
+        adName: lead.adName,
+        leadCreatedAt: lead.leadCreatedAt,
+        syncProvider: 'windsor.ai',
+      };
+
+      if (existing) {
+        // For existing leads, update upstream details; update source only if incoming source is valid
+        if (isKnownChannel(finalSource)) {
+          updateSet.source = finalSource;
+        }
+
+        bulkOperations.push({
+          updateOne: {
+            filter: { _id: existing._id },
+            update: {
+              $set: updateSet,
             },
-            // CRM-owned fields ONLY set on initial insert, NEVER overwritten on sync refresh
-            $setOnInsert: {
-              source: 'facebook_leads',
+          },
+        });
+      } else {
+        // For new leads, use $setOnInsert for source to avoid $set/$setOnInsert conflict
+        bulkOperations.push({
+          updateOne: {
+            filter: {
+              source: finalSource,
               accountId: lead.accountId,
               externalLeadId: lead.externalLeadId,
-              status: 'new',
-              assignedTo: null,
-              notes: '',
-              nextFollowUpDate: null,
-              nextFollowUpRemarks: '',
-              lastFollowUpCompletedAt: null,
             },
+            update: {
+              $set: updateSet,
+              $setOnInsert: {
+                source: finalSource,
+                accountId: lead.accountId,
+                externalLeadId: lead.externalLeadId,
+                status: 'new',
+                assignedTo: null,
+                notes: '',
+                nextFollowUpDate: null,
+                nextFollowUpRemarks: '',
+                lastFollowUpCompletedAt: null,
+              },
+            },
+            upsert: true,
           },
-          upsert: true,
-        },
-      });
+        });
+      }
     }
 
     if (bulkOperations.length > 0) {

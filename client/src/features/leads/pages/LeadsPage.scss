@@ -422,6 +422,33 @@
   flex-direction: column;
   gap: 0.15rem;
 
+  .source-pill {
+    display: inline-block;
+    align-self: flex-start;
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.1rem 0.35rem;
+    border-radius: $radius-xs;
+    background-color: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+    margin-bottom: 0.1rem;
+
+    &--meta {
+      background-color: #f0fdf4;
+      color: #15803d;
+      border-color: #bbf7d0;
+    }
+
+    &--unknown {
+      background-color: #f1f5f9;
+      color: #64748b;
+      border-color: #cbd5e1;
+    }
+  }
+
   .campaign-name {
     font-weight: 500;
     color: $brand-navy;
@@ -514,6 +541,12 @@
     background-color: #e0f2fe;
     color: #0369a1;
     border: 1px solid #bae6fd;
+  }
+
+  &--completed {
+    background-color: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
   }
 }
 

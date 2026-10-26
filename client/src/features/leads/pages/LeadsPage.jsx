@@ -5,6 +5,7 @@ import { apiFetch } from '../../../shared/lib/api.js';
 import { StatusBadge } from '../../../shared/components/StatusBadge.jsx';
 import { LoadingState } from '../../../shared/components/LoadingState.jsx';
 import { EmptyState } from '../../../shared/components/EmptyState.jsx';
+import { formatSourceLabel } from '../../../shared/lib/formatters.js';
 import { LeadDrawer } from '../components/LeadDrawer.jsx';
 import {
   IconSearch,
@@ -39,14 +40,20 @@ export function LeadsPage() {
   const initialFollowUp = queryParams.get('followUpStatus') || queryParams.get('followUp') || 'all';
   const initialAssigned = queryParams.get('assignedTo') || 'all';
   const initialDate = queryParams.get('dateFilter') || 'all';
+  const initialSource = queryParams.get('source') || 'all';
+  const initialSearch = queryParams.get('search') || '';
+  const initialStartDate = queryParams.get('startDate') || '';
+  const initialEndDate = queryParams.get('endDate') || '';
 
   // Filter state
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
   const [statusFilter, setStatusFilter] = useState(initialStatus);
-  const [sourceFilter, setSourceFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState(initialSource);
   const [assignedFilter, setAssignedFilter] = useState(initialAssigned);
   const [dateFilter, setDateFilter] = useState(initialDate);
+  const [customStartDate, setCustomStartDate] = useState(initialStartDate);
+  const [customEndDate, setCustomEndDate] = useState(initialEndDate);
   const [followUpFilter, setFollowUpFilter] = useState(initialFollowUp);
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState('desc');
@@ -55,11 +62,17 @@ export function LeadsPage() {
   useEffect(() => {
     if (currentSearch !== undefined) {
       const q = new URLSearchParams(currentSearch || (typeof window !== 'undefined' ? window.location.search : ''));
-      if (q.has('status')) setStatusFilter(q.get('status'));
-      if (q.has('followUpStatus')) setFollowUpFilter(q.get('followUpStatus'));
-      else if (q.has('followUp')) setFollowUpFilter(q.get('followUp'));
-      if (q.has('assignedTo')) setAssignedFilter(q.get('assignedTo'));
-      if (q.has('dateFilter')) setDateFilter(q.get('dateFilter'));
+      setStatusFilter(q.get('status') || 'all');
+      setFollowUpFilter(q.get('followUpStatus') || q.get('followUp') || 'all');
+      setAssignedFilter(q.get('assignedTo') || 'all');
+      setDateFilter(q.get('dateFilter') || 'all');
+      setSourceFilter(q.get('source') || 'all');
+      setCustomStartDate(q.get('startDate') || '');
+      setCustomEndDate(q.get('endDate') || '');
+      const searchQuery = q.get('search') || '';
+      setSearch(searchQuery);
+      setDebouncedSearch(searchQuery);
+      setPage(1);
     }
   }, [currentSearch]);
 
@@ -136,7 +149,16 @@ export function LeadsPage() {
       }
 
       // Date range filtering
-      if (dateFilter !== 'all') {
+      if (dateFilter && dateFilter !== 'all') {
+        params.set('dateFilter', dateFilter);
+      }
+      if (customStartDate) {
+        params.set('startDate', customStartDate);
+      }
+      if (customEndDate) {
+        params.set('endDate', customEndDate);
+      }
+      if (dateFilter !== 'all' && !customStartDate) {
         const now = new Date();
         let startDate;
         if (dateFilter === 'today') {
@@ -173,7 +195,7 @@ export function LeadsPage() {
         setLoading(false);
       }
     }
-  }, [page, limit, debouncedSearch, statusFilter, sourceFilter, assignedFilter, dateFilter, followUpFilter, sortBy, sortOrder, isAdmin]);
+  }, [page, limit, debouncedSearch, statusFilter, sourceFilter, assignedFilter, dateFilter, customStartDate, customEndDate, followUpFilter, sortBy, sortOrder, isAdmin]);
 
   useEffect(() => {
     fetchLeads();
@@ -186,7 +208,7 @@ export function LeadsPage() {
     );
   };
 
-  // Trigger manual Windsor sync (Admin only)
+  // Trigger manual lead sync (Admin only)
   const handleManualSync = async () => {
     if (syncLoading) return;
     setSyncLoading(true);
@@ -197,7 +219,7 @@ export function LeadsPage() {
       const summary = data.summary || {};
       setFeedback({
         type: 'success',
-        message: `Windsor sync completed. Fetched: ${summary.fetched || 0}, Inserted: ${summary.inserted || 0}, Updated: ${summary.updated || 0}.`,
+        message: `Lead sync completed. Fetched: ${summary.fetched || 0}, Inserted: ${summary.inserted || 0}, Updated: ${summary.updated || 0}.`,
       });
       fetchLeads();
     } catch (err) {
@@ -217,10 +239,15 @@ export function LeadsPage() {
     setSourceFilter('all');
     setAssignedFilter('all');
     setDateFilter('all');
+    setCustomStartDate('');
+    setCustomEndDate('');
     setFollowUpFilter('all');
     setSortBy('createdAt');
     setSortOrder('desc');
     setPage(1);
+    if (typeof window !== 'undefined' && window.history?.pushState) {
+      window.history.pushState({}, '', window.location.pathname);
+    }
   };
 
   const isFiltered =
@@ -229,6 +256,8 @@ export function LeadsPage() {
     sourceFilter !== 'all' ||
     assignedFilter !== 'all' ||
     dateFilter !== 'all' ||
+    Boolean(customStartDate) ||
+    Boolean(customEndDate) ||
     followUpFilter !== 'all';
 
   const formatDate = (dateStr) => {
@@ -270,10 +299,10 @@ export function LeadsPage() {
               className="sync-leads-btn"
               onClick={handleManualSync}
               disabled={syncLoading}
-              title="Sync latest leads from Windsor.ai"
+              title="Sync latest leads"
             >
               <IconRefresh size={14} className={syncLoading ? 'spin' : ''} />
-              <span>{syncLoading ? 'Syncing Windsor...' : 'Sync Leads'}</span>
+              <span>{syncLoading ? 'Syncing...' : 'Sync Leads'}</span>
             </button>
           )}
 
@@ -425,6 +454,7 @@ export function LeadsPage() {
               <option value="today">Due Today</option>
               <option value="overdue">Overdue</option>
               <option value="upcoming">Upcoming</option>
+              <option value="completed">Completed in Period</option>
               <option value="scheduled">Any Scheduled</option>
               <option value="none">No Follow-up</option>
             </select>
@@ -598,6 +628,13 @@ export function LeadsPage() {
                       {/* Campaign / Form */}
                       <td className="col-campaign">
                         <div className="campaign-cell">
+                          <span
+                            className={`source-pill source-pill--${
+                              formatSourceLabel(lead.source) === 'Meta' ? 'meta' : 'unknown'
+                            }`}
+                          >
+                            {formatSourceLabel(lead.source)}
+                          </span>
                           <span className="campaign-name" title={lead.campaignName || '—'}>
                             {lead.campaignName || 'Organic / Direct'}
                           </span>
@@ -625,6 +662,14 @@ export function LeadsPage() {
                           >
                             <IconClock size={11} />
                             <span>{formatDate(lead.nextFollowUpDate)}</span>
+                          </div>
+                        ) : lead.lastFollowUpCompletedAt ? (
+                          <div
+                            className="table-followup-badge table-followup-badge--completed"
+                            title={`Follow-up completed on ${formatDate(lead.lastFollowUpCompletedAt)}`}
+                          >
+                            <IconClock size={11} />
+                            <span>Done {formatDate(lead.lastFollowUpCompletedAt)}</span>
                           </div>
                         ) : (
                           <span className="table-followup-none">—</span>
