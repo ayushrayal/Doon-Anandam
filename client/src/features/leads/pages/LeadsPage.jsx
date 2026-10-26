@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../auth/index.js';
 import { useRouter } from '../../../app/routing/RouterContext.jsx';
-import { apiFetch } from '../../../shared/lib/api.js';
+import { apiFetch, apiDownload } from '../../../shared/lib/api.js';
 import { StatusBadge } from '../../../shared/components/StatusBadge.jsx';
 import { LoadingState } from '../../../shared/components/LoadingState.jsx';
 import { EmptyState } from '../../../shared/components/EmptyState.jsx';
@@ -20,6 +20,7 @@ import {
   IconAlertTriangle,
   IconCheckCircle,
   IconClock,
+  IconDownload,
 } from '../../../shared/components/Icons.jsx';
 import './LeadsPage.scss';
 
@@ -81,6 +82,7 @@ export function LeadsPage() {
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState({ type: '', message: '' });
   const [syncLoading, setSyncLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
   // Selected lead for drawer
   const [selectedLeadId, setSelectedLeadId] = useState(null);
@@ -232,6 +234,86 @@ export function LeadsPage() {
     }
   };
 
+  // Trigger Excel export for all matching leads
+  const handleExportExcel = async () => {
+    if (exportLoading) return;
+    if (total === 0) {
+      setFeedback({
+        type: 'error',
+        message: 'No leads match your active filters to export.',
+      });
+      return;
+    }
+
+    setExportLoading(true);
+    setFeedback({ type: '', message: '' });
+
+    try {
+      const params = new URLSearchParams({
+        sortBy,
+        sortOrder,
+      });
+
+      if (debouncedSearch.trim()) {
+        params.set('search', debouncedSearch.trim());
+      }
+      if (statusFilter !== 'all') {
+        params.set('status', statusFilter);
+      }
+      if (sourceFilter !== 'all') {
+        params.set('source', sourceFilter);
+      }
+      if (isAdmin && assignedFilter !== 'all') {
+        params.set('assignedTo', assignedFilter);
+      }
+      if (followUpFilter !== 'all') {
+        params.set('followUpStatus', followUpFilter);
+      }
+
+      // Date range filtering
+      if (dateFilter && dateFilter !== 'all') {
+        params.set('dateFilter', dateFilter);
+      }
+      if (customStartDate) {
+        params.set('startDate', customStartDate);
+      }
+      if (customEndDate) {
+        params.set('endDate', customEndDate);
+      }
+      if (dateFilter !== 'all' && !customStartDate) {
+        const now = new Date();
+        let startDate;
+        if (dateFilter === 'today') {
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        } else if (dateFilter === '7d') {
+          const d = new Date();
+          d.setDate(d.getDate() - 7);
+          startDate = d.toISOString();
+        } else if (dateFilter === '30d') {
+          const d = new Date();
+          d.setDate(d.getDate() - 30);
+          startDate = d.toISOString();
+        }
+        if (startDate) {
+          params.set('startDate', startDate);
+        }
+      }
+
+      await apiDownload(`/leads/export?${params.toString()}`, 'Doon_Anandam_Leads.xlsx');
+      setFeedback({
+        type: 'success',
+        message: 'Excel export generated and downloaded successfully.',
+      });
+    } catch (err) {
+      setFeedback({
+        type: 'error',
+        message: err.message || 'Failed to export Excel file.',
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   const handleResetFilters = () => {
     setSearch('');
     setDebouncedSearch('');
@@ -305,6 +387,17 @@ export function LeadsPage() {
               <span>{syncLoading ? 'Syncing...' : 'Sync Leads'}</span>
             </button>
           )}
+
+          <button
+            type="button"
+            className="export-leads-btn"
+            onClick={handleExportExcel}
+            disabled={exportLoading}
+            title="Export filtered leads to Excel (.xlsx)"
+          >
+            <IconDownload size={14} className={exportLoading ? 'spin' : ''} />
+            <span>{exportLoading ? 'Exporting...' : 'Export Excel'}</span>
+          </button>
 
           <button
             type="button"

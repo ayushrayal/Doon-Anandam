@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import ExcelJS from 'exceljs';
 import Lead from '../models/Lead.js';
 import User from '../models/User.js';
 import Activity from '../models/Activity.js';
@@ -6,6 +7,8 @@ import { env } from '../config/env.js';
 import { ALLOWED_STATUS_TRANSITIONS } from '../schemas/lead.schema.js';
 import { syncFacebookLeads } from '../services/leadSync.service.js';
 import { invalidateAnalyticsCache, computeDateBounds } from './analytics.controller.js';
+
+export const MAX_EXPORT_LIMIT = 5000;
 
 /**
  * Computes the operational follow-up indicator for a given follow-up date.
@@ -43,6 +46,207 @@ export function formatLeadResponse(leadDoc) {
 }
 
 /**
+ * Sanitizes cell values to neutralize spreadsheet formula injection vulnerabilities.
+ * Prefixes strings starting with =, +, -, @, \t, \r with a single quote.
+ */
+export function sanitizeForExcel(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (/^[=+\-@\t\r]/.test(trimmed)) {
+    return `'${trimmed}`;
+  }
+  return trimmed;
+}
+
+/**
+ * Maps database acquisition source to clean user-facing label.
+ */
+export function getExportSourceLabel(source) {
+  if (!source) return 'Unknown';
+  const s = source.toLowerCase();
+  if (s === 'meta' || s.startsWith('facebook') || s.startsWith('fb')) return 'Meta';
+  if (s === 'google' || s.startsWith('google')) return 'Google';
+  if (s === 'manual') return 'Manual Entry';
+  if (s === 'website') return 'Website';
+  return source;
+}
+
+/**
+ * Canonical query builder for leads.
+ * Reused across paginated listing and full Excel export to guarantee 100% parameter parity.
+ */
+export async function buildLeadQueryFilter(query, user) {
+  const {
+    status = 'all',
+    assignedTo,
+    source,
+    search,
+    startDate,
+    endDate,
+    dateFilter,
+    preset,
+    followUpStatus = 'all',
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+  } = query;
+
+  // 1. Account isolation: scope to configured business account
+  const filter = {};
+  if (env.WINDSOR_ACCOUNT_ID) {
+    filter.accountId = env.WINDSOR_ACCOUNT_ID;
+  }
+
+  // 2. Role scoping: sales_executive can ONLY see their assigned leads
+  if (user.role === 'sales_executive') {
+    filter.assignedTo = user._id;
+  } else if (user.role === 'admin') {
+    if (assignedTo === 'unassigned') {
+      filter.assignedTo = null;
+    } else if (assignedTo && mongoose.Types.ObjectId.isValid(assignedTo)) {
+      filter.assignedTo = assignedTo;
+    }
+  }
+
+  // 3. Status filter
+  if (status && status !== 'all') {
+    filter.status = status;
+  }
+
+  // 4. Source filter (supports 'meta' mapping to Facebook/Meta lead channels)
+  if (source && source.trim() && source !== 'all') {
+    const src = source.trim();
+    if (src.toLowerCase() === 'meta') {
+      filter.source = { $in: ['meta', 'facebook_leads', 'facebook', 'facebook_ads'] };
+    } else {
+      filter.source = src;
+    }
+  }
+
+  // 5. Follow-up status filter (reconciled with Dashboard operational workload definitions)
+  if (followUpStatus && followUpStatus !== 'all') {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+    if (followUpStatus === 'completed') {
+      const datePreset = dateFilter || preset || 'all';
+      const dateBounds = computeDateBounds(datePreset, startDate, endDate);
+      const completedActivityFilter = {
+        type: 'follow_up_completed',
+      };
+      if (env.WINDSOR_ACCOUNT_ID) {
+        completedActivityFilter.accountId = env.WINDSOR_ACCOUNT_ID;
+      }
+      if (user.role === 'sales_executive') {
+        completedActivityFilter.performedBy = user._id;
+      } else if (user.role === 'admin' && assignedTo) {
+        if (assignedTo !== 'all' && mongoose.Types.ObjectId.isValid(assignedTo)) {
+          completedActivityFilter.performedBy = new mongoose.Types.ObjectId(assignedTo);
+        }
+      }
+      if (dateBounds.start || dateBounds.end) {
+        completedActivityFilter.performedAt = {};
+        if (dateBounds.start) completedActivityFilter.performedAt.$gte = dateBounds.start;
+        if (dateBounds.end) completedActivityFilter.performedAt.$lte = dateBounds.end;
+      }
+
+      const completedLeadIds = await Activity.distinct('leadId', completedActivityFilter);
+      filter._id = { $in: completedLeadIds };
+    } else if (followUpStatus === 'scheduled') {
+      filter.nextFollowUpDate = { $type: 'date' };
+      if (!filter.status) {
+        filter.status = { $nin: ['converted', 'lost'] };
+      }
+    } else if (followUpStatus === 'none') {
+      filter.nextFollowUpDate = { $in: [null, undefined] };
+      if (!filter.status) {
+        filter.status = { $nin: ['converted', 'lost'] };
+      }
+    } else if (followUpStatus === 'overdue') {
+      filter.nextFollowUpDate = { $type: 'date', $lt: todayStart };
+      if (!filter.status) {
+        filter.status = { $nin: ['converted', 'lost'] };
+      }
+    } else if (followUpStatus === 'today') {
+      filter.nextFollowUpDate = { $type: 'date', $gte: todayStart, $lte: todayEnd };
+      if (!filter.status) {
+        filter.status = { $nin: ['converted', 'lost'] };
+      }
+    } else if (followUpStatus === 'upcoming') {
+      filter.nextFollowUpDate = { $type: 'date', $gt: todayEnd };
+      if (!filter.status) {
+        filter.status = { $nin: ['converted', 'lost'] };
+      }
+    }
+  }
+
+  // 6. Date range filter on leadCreatedAt (or fallback to createdAt)
+  if ((startDate || endDate) && followUpStatus !== 'completed') {
+    const dateCond = {};
+    if (startDate) {
+      const start = new Date(startDate);
+      if (!isNaN(start.getTime())) {
+        dateCond.$gte = start;
+      }
+    }
+    if (endDate) {
+      const end = new Date(endDate);
+      if (!isNaN(end.getTime())) {
+        if (endDate.length === 10) {
+          end.setUTCHours(23, 59, 59, 999);
+        }
+        dateCond.$lte = end;
+      }
+    }
+    if (Object.keys(dateCond).length > 0) {
+      const dateMatch = [
+        { leadCreatedAt: dateCond },
+        { leadCreatedAt: { $exists: false }, createdAt: dateCond },
+        { leadCreatedAt: null, createdAt: dateCond },
+      ];
+      if (filter.$or) {
+        filter.$and = filter.$and || [];
+        filter.$and.push({ $or: filter.$or });
+        filter.$and.push({ $or: dateMatch });
+        delete filter.$or;
+      } else {
+        filter.$or = dateMatch;
+      }
+    }
+  }
+
+  // 7. Search across fullName, email, phoneNumber, campaignName
+  if (search && search.trim()) {
+    const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const searchRegex = new RegExp(escaped, 'i');
+    const searchMatch = [
+      { fullName: searchRegex },
+      { email: searchRegex },
+      { phoneNumber: searchRegex },
+      { campaignName: searchRegex },
+    ];
+    if (filter.$or) {
+      filter.$and = filter.$and || [];
+      filter.$and.push({ $or: filter.$or });
+      filter.$and.push({ $or: searchMatch });
+      delete filter.$or;
+    } else {
+      filter.$or = searchMatch;
+    }
+  }
+
+  // 8. Safe sorting
+  const sortField = ['createdAt', 'leadCreatedAt', 'fullName', 'status', 'nextFollowUpDate'].includes(sortBy)
+    ? sortBy
+    : 'createdAt';
+  const sortDirection = sortOrder === 'asc' ? 1 : -1;
+  const sort = { [sortField]: sortDirection };
+
+  return { filter, sort, sortField };
+}
+
+/**
  * GET /api/leads
  * Paginated lead listing with search, filtering, and safe sorting.
  *
@@ -54,168 +258,9 @@ export function formatLeadResponse(leadDoc) {
 export const getLeads = async (req, res, next) => {
   try {
     const query = req.validatedQuery || req.query;
-    const {
-      page = 1,
-      limit = 10,
-      status = 'all',
-      assignedTo,
-      source,
-      search,
-      startDate,
-      endDate,
-      dateFilter,
-      preset,
-      followUpStatus = 'all',
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
-    } = query;
+    const { page = 1, limit = 10 } = query;
 
-    // 1. Account isolation: scope to configured business account
-    const filter = {};
-    if (env.WINDSOR_ACCOUNT_ID) {
-      filter.accountId = env.WINDSOR_ACCOUNT_ID;
-    }
-
-    // 2. Role scoping: sales_executive can ONLY see their assigned leads
-    if (req.user.role === 'sales_executive') {
-      filter.assignedTo = req.user._id;
-    } else if (req.user.role === 'admin') {
-      // Admins can filter by specific user or unassigned leads
-      if (assignedTo === 'unassigned') {
-        filter.assignedTo = null;
-      } else if (assignedTo && mongoose.Types.ObjectId.isValid(assignedTo)) {
-        filter.assignedTo = assignedTo;
-      }
-    }
-
-    // 3. Status filter
-    if (status && status !== 'all') {
-      filter.status = status;
-    }
-
-    // 4. Source filter (supports 'meta' mapping to Facebook/Meta lead channels)
-    if (source && source.trim() && source !== 'all') {
-      const src = source.trim();
-      if (src.toLowerCase() === 'meta') {
-        filter.source = { $in: ['meta', 'facebook_leads', 'facebook', 'facebook_ads'] };
-      } else {
-        filter.source = src;
-      }
-    }
-
-    // 5. Follow-up status filter (reconciled with Dashboard operational workload definitions)
-    if (followUpStatus && followUpStatus !== 'all') {
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-      if (followUpStatus === 'completed') {
-        const datePreset = dateFilter || preset || 'all';
-        const dateBounds = computeDateBounds(datePreset, startDate, endDate);
-        const completedActivityFilter = {
-          type: 'follow_up_completed',
-        };
-        if (env.WINDSOR_ACCOUNT_ID) {
-          completedActivityFilter.accountId = env.WINDSOR_ACCOUNT_ID;
-        }
-        if (req.user.role === 'sales_executive') {
-          completedActivityFilter.performedBy = req.user._id;
-        } else if (req.user.role === 'admin' && assignedTo) {
-          if (assignedTo !== 'all' && mongoose.Types.ObjectId.isValid(assignedTo)) {
-            completedActivityFilter.performedBy = new mongoose.Types.ObjectId(assignedTo);
-          }
-        }
-        if (dateBounds.start || dateBounds.end) {
-          completedActivityFilter.performedAt = {};
-          if (dateBounds.start) completedActivityFilter.performedAt.$gte = dateBounds.start;
-          if (dateBounds.end) completedActivityFilter.performedAt.$lte = dateBounds.end;
-        }
-
-        const completedLeadIds = await Activity.distinct('leadId', completedActivityFilter);
-        filter._id = { $in: completedLeadIds };
-      } else if (followUpStatus === 'scheduled') {
-        filter.nextFollowUpDate = { $type: 'date' };
-        if (!filter.status) {
-          filter.status = { $nin: ['converted', 'lost'] };
-        }
-      } else if (followUpStatus === 'none') {
-        filter.nextFollowUpDate = { $in: [null, undefined] };
-        if (!filter.status) {
-          filter.status = { $nin: ['converted', 'lost'] };
-        }
-      } else if (followUpStatus === 'overdue') {
-        filter.nextFollowUpDate = { $type: 'date', $lt: todayStart };
-        if (!filter.status) {
-          filter.status = { $nin: ['converted', 'lost'] };
-        }
-      } else if (followUpStatus === 'today') {
-        filter.nextFollowUpDate = { $type: 'date', $gte: todayStart, $lte: todayEnd };
-        if (!filter.status) {
-          filter.status = { $nin: ['converted', 'lost'] };
-        }
-      } else if (followUpStatus === 'upcoming') {
-        filter.nextFollowUpDate = { $type: 'date', $gt: todayEnd };
-        if (!filter.status) {
-          filter.status = { $nin: ['converted', 'lost'] };
-        }
-      }
-    }
-
-    // 6. Date range filter on leadCreatedAt (or fallback to createdAt)
-    // Only apply to leadCreatedAt when followUpStatus is NOT 'completed'
-    // (for 'completed', the date range filters follow-up completion in Activity)
-    if ((startDate || endDate) && followUpStatus !== 'completed') {
-      const dateCond = {};
-      if (startDate) {
-        const start = new Date(startDate);
-        if (!isNaN(start.getTime())) {
-          dateCond.$gte = start;
-        }
-      }
-      if (endDate) {
-        const end = new Date(endDate);
-        if (!isNaN(end.getTime())) {
-          if (endDate.length === 10) {
-            end.setUTCHours(23, 59, 59, 999);
-          }
-          dateCond.$lte = end;
-        }
-      }
-      if (Object.keys(dateCond).length > 0) {
-        const dateMatch = [
-          { leadCreatedAt: dateCond },
-          { leadCreatedAt: { $exists: false }, createdAt: dateCond },
-          { leadCreatedAt: null, createdAt: dateCond },
-        ];
-        if (filter.$or) {
-          filter.$and = filter.$and || [];
-          filter.$and.push({ $or: filter.$or });
-          filter.$and.push({ $or: dateMatch });
-          delete filter.$or;
-        } else {
-          filter.$or = dateMatch;
-        }
-      }
-    }
-
-    // 7. Search across fullName, email, phoneNumber, campaignName
-    if (search && search.trim()) {
-      const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const searchRegex = new RegExp(escaped, 'i');
-      filter.$or = [
-        { fullName: searchRegex },
-        { email: searchRegex },
-        { phoneNumber: searchRegex },
-        { campaignName: searchRegex },
-      ];
-    }
-
-    // 8. Safe sorting
-    const sortField = ['createdAt', 'leadCreatedAt', 'fullName', 'status', 'nextFollowUpDate'].includes(sortBy)
-      ? sortBy
-      : 'createdAt';
-    const sortDirection = sortOrder === 'asc' ? 1 : -1;
-    const sort = { [sortField]: sortDirection };
+    const { filter, sort, sortField } = await buildLeadQueryFilter(query, req.user);
 
     // 9. Pagination with sensible caps
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
@@ -272,6 +317,183 @@ export const getLeads = async (req, res, next) => {
       });
     }
     next(err);
+  }
+};
+
+/**
+ * GET /api/leads/export
+ * Streams a genuine, formatted Excel (.xlsx) workbook containing ALL leads matching
+ * active filter criteria, without page/limit pagination constraints.
+ */
+export const exportLeadsExcel = async (req, res, next) => {
+  try {
+    const query = req.validatedQuery || req.query;
+    const { filter, sort } = await buildLeadQueryFilter(query, req.user);
+
+    // 1. Pre-flight check: total count
+    const totalCount = await Lead.countDocuments(filter).maxTimeMS(5000);
+
+    if (totalCount === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No leads found matching the selected filter criteria to export.',
+      });
+    }
+
+    if (totalCount > MAX_EXPORT_LIMIT) {
+      return res.status(400).json({
+        success: false,
+        message: `Export limit exceeded: Found ${totalCount.toLocaleString()} matching leads. The maximum export size is ${MAX_EXPORT_LIMIT.toLocaleString()} leads. Please refine your date range or filter criteria before exporting.`,
+      });
+    }
+
+    // 2. Set response headers for binary XLSX download
+    const now = new Date();
+    const dateStr = now.toISOString().slice(0, 10);
+    const timeStr = now.toTimeString().slice(0, 5).replace(':', '');
+    const filename = `Doon_Anandam_Leads_${dateStr}_${timeStr}.xlsx`;
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+    // 3. Initialize streaming Excel workbook
+    const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: true,
+      useSharedStrings: true,
+    });
+
+    const worksheet = workbook.addWorksheet('Leads Pipeline', {
+      views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }],
+    });
+
+    // 4. Configure columns with widths
+    worksheet.columns = [
+      { header: 'Lead ID', key: 'id', width: 26 },
+      { header: 'External ID', key: 'externalLeadId', width: 20 },
+      { header: 'Full Name', key: 'fullName', width: 24 },
+      { header: 'Phone Number', key: 'phoneNumber', width: 18 },
+      { header: 'Email Address', key: 'email', width: 28 },
+      { header: 'Status', key: 'status', width: 16 },
+      { header: 'Assigned Executive', key: 'assignedTo', width: 22 },
+      { header: 'Acquisition Source', key: 'source', width: 18 },
+      { header: 'Campaign Name', key: 'campaignName', width: 28 },
+      { header: 'Form Name', key: 'formName', width: 24 },
+      { header: 'Ingestion Date', key: 'leadCreatedAt', width: 20 },
+      { header: 'Next Follow-Up Date', key: 'nextFollowUpDate', width: 20 },
+      { header: 'Follow-Up Remarks', key: 'nextFollowUpRemarks', width: 30 },
+      { header: 'Last Completed Follow-Up', key: 'lastFollowUpCompletedAt', width: 22 },
+      { header: 'CRM Notes', key: 'notes', width: 36 },
+    ];
+
+    // Format Header Row (Navy Blue #1A2C50 with white bold text)
+    const headerRow = worksheet.getRow(1);
+    headerRow.height = 26;
+    headerRow.eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FF1A2C50' },
+      };
+      cell.font = {
+        name: 'Segoe UI',
+        bold: true,
+        color: { argb: 'FFFFFFFF' },
+        size: 11,
+      };
+      cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: false };
+      cell.border = {
+        bottom: { style: 'medium', color: { argb: 'FF007EFF' } },
+      };
+    });
+    headerRow.commit();
+
+    // 5. Query matching leads with Mongoose cursor for memory-safe streaming
+    const leadCursor = Lead.find(filter)
+      .select('-__v -syncProvider')
+      .populate('assignedTo', '_id name email role')
+      .sort(sort)
+      .maxTimeMS(30000)
+      .cursor();
+
+    let rowIndex = 2;
+
+    for await (const doc of leadCursor) {
+      const assignedName = doc.assignedTo?.name || 'Unassigned';
+      const formattedStatus = doc.status
+        ? doc.status.charAt(0).toUpperCase() + doc.status.slice(1).replace('_', ' ')
+        : '—';
+      const formattedSource = getExportSourceLabel(doc.source);
+
+      const rowValues = {
+        id: doc._id.toString(),
+        externalLeadId: sanitizeForExcel(doc.externalLeadId || ''),
+        fullName: sanitizeForExcel(doc.fullName || ''),
+        phoneNumber: sanitizeForExcel(doc.phoneNumber || ''),
+        email: sanitizeForExcel(doc.email || ''),
+        status: formattedStatus,
+        assignedTo: sanitizeForExcel(assignedName),
+        source: formattedSource,
+        campaignName: sanitizeForExcel(doc.campaignName || 'Organic / Direct'),
+        formName: sanitizeForExcel(doc.formName || 'Standard Inquiry'),
+        leadCreatedAt: doc.leadCreatedAt
+          ? new Date(doc.leadCreatedAt)
+          : doc.createdAt
+            ? new Date(doc.createdAt)
+            : null,
+        nextFollowUpDate: doc.nextFollowUpDate ? new Date(doc.nextFollowUpDate) : null,
+        nextFollowUpRemarks: sanitizeForExcel(doc.nextFollowUpRemarks || ''),
+        lastFollowUpCompletedAt: doc.lastFollowUpCompletedAt
+          ? new Date(doc.lastFollowUpCompletedAt)
+          : null,
+        notes: sanitizeForExcel(doc.notes || ''),
+      };
+
+      const row = worksheet.addRow(rowValues);
+      row.height = 20;
+
+      // Subtle zebra striping
+      const isEven = rowIndex % 2 === 0;
+      row.eachCell((cell) => {
+        cell.font = { name: 'Segoe UI', size: 10 };
+        cell.alignment = { vertical: 'middle' };
+
+        if (isEven) {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF8F9FA' },
+          };
+        }
+
+        if (cell.value instanceof Date) {
+          cell.numFmt = 'yyyy-mm-dd hh:mm';
+        }
+      });
+
+      row.commit();
+      rowIndex++;
+    }
+
+    // Set auto-filter across all columns from row 1 to rowIndex - 1
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: Math.max(1, rowIndex - 1), column: 15 },
+    };
+
+    worksheet.commit();
+    await workbook.commit();
+  } catch (err) {
+    if (!res.headersSent) {
+      next(err);
+    } else {
+      console.error('[Excel Export Stream Error]', err);
+      res.end();
+    }
   }
 };
 

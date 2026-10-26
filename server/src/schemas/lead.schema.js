@@ -47,6 +47,15 @@ export const leadQuerySchema = z.object({
 });
 
 /**
+ * Validates lead export query parameters.
+ * Reuses all filter and sorting criteria from leadQuerySchema while excluding pagination (page, limit).
+ */
+export const leadExportQuerySchema = leadQuerySchema.omit({
+  page: true,
+  limit: true,
+});
+
+/**
  * Validates lead status transition request body.
  * Accepts target status, optional stage change note, and optional lost reason.
  */

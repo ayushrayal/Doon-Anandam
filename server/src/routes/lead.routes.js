@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   getLeads,
+  exportLeadsExcel,
   getLeadById,
   updateLeadStatus,
   assignLead,
@@ -16,6 +17,7 @@ import { verifyOrigin } from '../middleware/verifyOrigin.js';
 import { validateBody, validateQuery } from '../middleware/validate.js';
 import {
   leadQuerySchema,
+  leadExportQuerySchema,
   updateLeadStatusSchema,
   assignLeadSchema,
   scheduleFollowUpSchema,
@@ -30,6 +32,9 @@ router.use(authenticate);
 
 // 1. Lead listing with pagination, search, safe sorting, and filters
 router.get('/', validateQuery(leadQuerySchema), getLeads);
+
+// 1b. Export leads to Excel matching active filters (omitting pagination)
+router.get('/export', validateQuery(leadExportQuerySchema), exportLeadsExcel);
 
 // 2. Admin-only manual synchronization endpoint
 router.post('/sync', authorize(['admin']), verifyOrigin, syncLeads);
