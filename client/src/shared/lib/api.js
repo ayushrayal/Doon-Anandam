@@ -12,12 +12,10 @@ const resolveApiBase = () => {
   const envUrl = (import.meta.env.VITE_API_BASE_URL || '').trim();
 
   // Production environment:
+  // Single-service deployment on Render always uses same-origin relative '/api'.
+  // Returning unconditionally allows Vite to eliminate all conditionals and dev strings from the production bundle.
   if (import.meta.env.PROD) {
-    // If VITE_API_BASE_URL was accidentally configured with localhost/127.0.0.1, ignore it.
-    if (!envUrl || envUrl.includes('localhost') || envUrl.includes('127.0.0.1')) {
-      return '/api';
-    }
-    return envUrl.replace(/\/+$/, '');
+    return '/api';
   }
 
   // Development environment:

@@ -109,8 +109,12 @@ app.get('*', (req, res, next) => {
     return notFound(req, res, next);
   }
 
-  // If index.html exists, serve the React single-page application
+  // If index.html exists, serve the React single-page application.
+  // Set no-cache to guarantee browsers always fetch the latest index.html after deployments.
   if (fs.existsSync(indexHtmlPath)) {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
     return res.sendFile(indexHtmlPath);
   }
 
