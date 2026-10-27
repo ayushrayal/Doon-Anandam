@@ -526,7 +526,7 @@ export function LeadsPage() {
           <input
             type="text"
             className="leads-search-input"
-            placeholder="Search by lead name, phone, email, campaign..."
+            placeholder="Search by lead name or phone number"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />

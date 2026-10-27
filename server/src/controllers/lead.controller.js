@@ -218,15 +218,13 @@ export async function buildLeadQueryFilter(query, user) {
     }
   }
 
-  // 7. Search across fullName, email, phoneNumber, campaignName
+  // 7. Search across fullName and phoneNumber only (case-insensitive name, partial phone)
   if (search && search.trim()) {
     const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const searchRegex = new RegExp(escaped, 'i');
     const searchMatch = [
       { fullName: searchRegex },
-      { email: searchRegex },
       { phoneNumber: searchRegex },
-      { campaignName: searchRegex },
     ];
     if (filter.$or) {
       filter.$and = filter.$and || [];

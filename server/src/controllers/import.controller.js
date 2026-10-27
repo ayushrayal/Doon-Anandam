@@ -274,8 +274,6 @@ export async function getImportedRecords(req, res, next) {
       filter.$or = [
         { fullName: searchRegex },
         { phoneNumber: searchRegex },
-        { email: searchRegex },
-        { campaignName: searchRegex },
       ];
     }
 

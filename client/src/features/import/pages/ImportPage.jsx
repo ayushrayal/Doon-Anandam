@@ -909,7 +909,7 @@ export function ImportPage() {
               <IconSearch size={16} className="search-icon" />
               <input
                 type="text"
-                placeholder="Search imported leads by name, phone, email, project..."
+                placeholder="Search imported leads by name or phone number"
                 value={recordSearch}
                 onChange={(e) => setRecordSearch(e.target.value)}
               />
