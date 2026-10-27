@@ -11,6 +11,7 @@ import apiRouter from './routes/index.js';
 import { getAllowedOrigins } from './middleware/verifyOrigin.js';
 import { notFound } from './middleware/notFound.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { requestPerformanceMonitoring } from './middleware/performanceMonitor.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -72,6 +73,9 @@ app.use(cookieParser());
 
 // Global API rate limiting for DoS and volumetric protection
 app.use('/api', apiLimiter);
+
+// Lightweight, privacy-safe request performance monitoring
+app.use('/api', requestPerformanceMonitoring);
 
 // 1. API routes mounted first
 app.use('/api', apiRouter);
