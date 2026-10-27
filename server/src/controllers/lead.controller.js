@@ -136,6 +136,7 @@ export async function buildLeadQueryFilter(query, user) {
       const dateBounds = computeDateBounds(datePreset, startDate, endDate);
       const completedActivityFilter = {
         type: 'follow_up_completed',
+        leadModel: { $ne: 'ImportedLead' },
       };
       if (env.WINDSOR_ACCOUNT_ID) {
         completedActivityFilter.accountId = env.WINDSOR_ACCOUNT_ID;
@@ -153,7 +154,7 @@ export async function buildLeadQueryFilter(query, user) {
         if (dateBounds.end) completedActivityFilter.performedAt.$lte = dateBounds.end;
       }
 
-      const completedLeadIds = await Activity.distinct('leadId', completedActivityFilter);
+      const completedLeadIds = await Activity.distinct('leadId', completedActivityFilter).maxTimeMS(5000);
       filter._id = { $in: completedLeadIds };
     } else if (followUpStatus === 'scheduled') {
       filter.nextFollowUpDate = { $type: 'date' };
@@ -267,6 +268,25 @@ export const getLeads = async (req, res, next) => {
     const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 10));
     const skip = (pageNum - 1) * limitNum;
 
+    // Fast path: When filter matches an empty _id.$in array (e.g. no completed follow-ups in period),
+    // immediately return empty results without issuing redundant countDocuments and find queries.
+    if (filter._id && Array.isArray(filter._id.$in) && filter._id.$in.length === 0) {
+      return res.status(200).json({
+        success: true,
+        leads: [],
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: 0,
+          totalPages: 1,
+        },
+        page: pageNum,
+        limit: limitNum,
+        total: 0,
+        totalPages: 1,
+      });
+    }
+
     let leadQuery = Lead.find(filter)
       .select('-__v')
       .populate('assignedTo', '_id name email role')
@@ -329,6 +349,14 @@ export const exportLeadsExcel = async (req, res, next) => {
   try {
     const query = req.validatedQuery || req.query;
     const { filter, sort } = await buildLeadQueryFilter(query, req.user);
+
+    // Fast path: When filter matches an empty _id.$in array, avoid querying countDocuments
+    if (filter._id && Array.isArray(filter._id.$in) && filter._id.$in.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No leads found matching the selected filter criteria to export.',
+      });
+    }
 
     // 1. Pre-flight check: total count
     const totalCount = await Lead.countDocuments(filter).maxTimeMS(5000);
@@ -812,6 +840,7 @@ export const scheduleFollowUp = async (req, res, next) => {
     await Activity.create({
       leadId: lead._id,
       accountId: lead.accountId,
+      leadModel: 'Lead',
       type: activityType,
       summary: summaryText,
       performedBy: req.user._id,
@@ -889,6 +918,7 @@ export const completeFollowUp = async (req, res, next) => {
     await Activity.create({
       leadId: lead._id,
       accountId: lead.accountId,
+      leadModel: 'Lead',
       type: 'follow_up_completed',
       summary: summaryText,
       performedBy: req.user._id,

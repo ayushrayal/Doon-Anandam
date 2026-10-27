@@ -5,9 +5,11 @@ import User from '../models/User.js';
 import { env } from '../config/env.js';
 
 // Short-lived in-memory cache to absorb concurrent dashboard requests
-// Short-lived in-memory cache to absorb concurrent dashboard requests
 const analyticsCache = new Map();
-export const ANALYTICS_CACHE_TTL_MS = 20 * 1000; // 20 seconds TTL
+const inFlightRequests = new Map(); // Collapses concurrent requests for identical cacheKey
+
+export const ANALYTICS_CACHE_TTL_MS =
+  (parseInt(process.env.ANALYTICS_CACHE_TTL_SECONDS, 10) || 30) * 1000; // Configurable TTL (default 30 seconds)
 let maxAnalyticsCacheEntries = 200; // Configurable upper capacity limit
 export const ANALYTICS_QUERY_TIMEOUT_MS = 8000; // 8 seconds timeout limit for aggregations
 
@@ -53,12 +55,10 @@ export function getAnalyticsCacheCapacity() {
   return maxAnalyticsCacheEntries;
 }
 
-/**
- * Invalidate cached analytics data when CRM records change.
- */
 export function invalidateAnalyticsCache(accountId = null) {
   if (!accountId) {
     analyticsCache.clear();
+    inFlightRequests.clear();
     return;
   }
   for (const [key] of analyticsCache) {
@@ -66,10 +66,19 @@ export function invalidateAnalyticsCache(accountId = null) {
       analyticsCache.delete(key);
     }
   }
+  for (const [key] of inFlightRequests) {
+    if (key.includes(`:${accountId}:`)) {
+      inFlightRequests.delete(key);
+    }
+  }
 }
 
 export function getAnalyticsCacheSize() {
   return analyticsCache.size;
+}
+
+export function getInFlightRequestsCount() {
+  return inFlightRequests.size;
 }
 
 export function getAnalyticsCacheEntry(key) {
@@ -118,6 +127,16 @@ export function computeDateBounds(preset, startDate, endDate) {
 }
 
 /**
+ * Generates a role- and account-isolated cache key for dashboard queries.
+ */
+export function buildDashboardCacheKey(role, userId, accountScope, query = {}) {
+  const { preset = '30d', startDate = '', endDate = '', assignedTo = 'all', source = 'all' } = query;
+  return role === 'admin'
+    ? `admin:${accountScope}:${preset}:${startDate}:${endDate}:${assignedTo}:${source}`
+    : `exec:${userId}:${accountScope}:${preset}:${startDate}:${endDate}:${source}`;
+}
+
+/**
  * GET /api/analytics/dashboard
  * Aggregates enterprise CRM metrics with rigorous date semantics, account isolation,
  * role scoping, pipeline funnels, follow-up workloads, and executive performance.
@@ -132,20 +151,22 @@ export const getDashboardAnalytics = async (req, res, next) => {
     // Strict user-role isolated cache key:
     // - For sales executives: keyed by their user ID so they can NEVER see other rep data
     // - For admins: keyed by requested assignedTo filter and account scope
-    const cacheKey =
-      req.user.role === 'admin'
-        ? `admin:${accountScope}:${preset}:${startDate || ''}:${endDate || ''}:${assignedTo || 'all'}:${source || 'all'}`
-        : `exec:${req.user._id}:${accountScope}:${preset}:${startDate || ''}:${endDate || ''}:${source || 'all'}`;
+    const cacheKey = buildDashboardCacheKey(req.user.role, req.user._id, accountScope, req.query);
 
     if (!isTest) {
-      const cached = analyticsCache.get(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
-        return res.status(200).json(cached.data);
-      } else if (cached) {
-        analyticsCache.delete(cacheKey);
+      const cached = getAnalyticsCacheEntry(cacheKey);
+      if (cached) {
+        return res.status(200).json(cached);
+      }
+
+      // In-flight deduplication: await in-flight calculation if identical query is currently computing
+      if (inFlightRequests.has(cacheKey)) {
+        const payload = await inFlightRequests.get(cacheKey);
+        return res.status(200).json(payload);
       }
     }
 
+    const computeDashboardPayload = async () => {
     const dateBounds = computeDateBounds(preset, startDate, endDate);
 
     // Current date boundaries for operational follow-up workload
@@ -704,8 +725,21 @@ export const getDashboardAnalytics = async (req, res, next) => {
       recentActivities,
     };
 
+    return responsePayload;
+    };
+
+    let responsePayload;
     if (!isTest) {
-      setBoundedAnalyticsCache(cacheKey, responsePayload, ANALYTICS_CACHE_TTL_MS);
+      const computationPromise = computeDashboardPayload();
+      inFlightRequests.set(cacheKey, computationPromise);
+      try {
+        responsePayload = await computationPromise;
+        setBoundedAnalyticsCache(cacheKey, responsePayload, ANALYTICS_CACHE_TTL_MS);
+      } finally {
+        inFlightRequests.delete(cacheKey);
+      }
+    } else {
+      responsePayload = await computeDashboardPayload();
     }
 
     return res.status(200).json(responsePayload);
