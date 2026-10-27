@@ -42,18 +42,10 @@ function AppContent() {
     );
   }
 
-  // Route: Excel Lead Import (Admin only)
+  // Route: Excel Lead Import (Admin: upload/history/records, Sales Executive: assigned imported leads)
   if (currentPath === '/import') {
-    if (!isAdmin) {
-      navigate('/dashboard');
-      return (
-        <AppLayout title="Dashboard">
-          <DashboardPage />
-        </AppLayout>
-      );
-    }
     return (
-      <AppLayout title="Excel Lead Import">
+      <AppLayout title={isAdmin ? 'Excel Lead Import' : 'Assigned Imported Leads'}>
         <ImportPage />
       </AppLayout>
     );

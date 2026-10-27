@@ -3,7 +3,7 @@
  * Enforces that the authenticated user has one of the required roles.
  */
 export const authorize = (allowedRoles = ['admin']) => {
-  return (req, res, next) => {
+  return function authorizeRole(req, res, next) {
     if (!req.user) {
       return res.status(401).json({
         success: false,

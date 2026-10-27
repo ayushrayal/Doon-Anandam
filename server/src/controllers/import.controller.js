@@ -8,9 +8,35 @@ import {
   parseAndPreviewWorkbook,
   confirmImportBatch,
   generateImportTemplate,
+  safeUnlink,
 } from '../services/leadImport.service.js';
 import { computeFollowUpIndicator } from './lead.controller.js';
 import { ALLOWED_STATUS_TRANSITIONS } from '../schemas/lead.schema.js';
+
+/**
+ * Defense-in-depth helper: guarantees only authenticated users with verified Admin role can execute import logic.
+ */
+export function requireAdmin(req) {
+  if (!req.user || req.user.role !== 'admin') {
+    const error = new Error('Forbidden: Only Administrators can access Excel Import operations.');
+    error.status = 403;
+    error.code = 'FORBIDDEN_ADMIN_ONLY';
+    throw error;
+  }
+}
+
+/**
+ * Defense-in-depth helper: allows Admin and Sales Executive to access imported lead records,
+ * while rejecting unauthorized or deactivated users.
+ */
+export function requireRecordAccess(req) {
+  if (!req.user || !['admin', 'sales_executive'].includes(req.user.role)) {
+    const error = new Error('Forbidden: You do not have permission to access imported lead records.');
+    error.status = 403;
+    error.code = 'FORBIDDEN_RECORD_ACCESS';
+    throw error;
+  }
+}
 
 /**
  * GET /api/leads/import/template
@@ -18,6 +44,7 @@ import { ALLOWED_STATUS_TRANSITIONS } from '../schemas/lead.schema.js';
  */
 export async function downloadTemplate(req, res, next) {
   try {
+    requireAdmin(req);
     const workbook = await generateImportTemplate();
     const filename = 'Doon_Anandam_Lead_Import_Template.xlsx';
 
@@ -40,8 +67,11 @@ export async function downloadTemplate(req, res, next) {
  * Accepts uploaded Excel file, validates rows, identifies duplicates, and saves a preview batch with TTL.
  */
 export async function previewImport(req, res, next) {
+  const filePath = req.file?.path;
+
   try {
-    if (!req.file || !req.file.buffer) {
+    requireAdmin(req);
+    if (!req.file || (!req.file.path && !req.file.buffer)) {
       return res.status(400).json({
         success: false,
         message: 'No file uploaded. Please upload a valid .xlsx workbook.',
@@ -49,6 +79,7 @@ export async function previewImport(req, res, next) {
     }
 
     const preview = await parseAndPreviewWorkbook({
+      filePath: req.file.path,
       buffer: req.file.buffer,
       originalFilename: req.file.originalname,
       fileSizeBytes: req.file.size,
@@ -70,6 +101,10 @@ export async function previewImport(req, res, next) {
       });
     }
     next(err);
+  } finally {
+    if (filePath) {
+      await safeUnlink(filePath);
+    }
   }
 }
 
@@ -79,6 +114,7 @@ export async function previewImport(req, res, next) {
  */
 export async function confirmImport(req, res, next) {
   try {
+    requireAdmin(req);
     const { batchId } = req.body;
 
     if (!batchId) {
@@ -116,6 +152,7 @@ export async function confirmImport(req, res, next) {
  */
 export async function getImportHistory(req, res, next) {
   try {
+    requireAdmin(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 15));
@@ -160,6 +197,7 @@ export async function getImportHistory(req, res, next) {
  */
 export async function getImportBatchDetails(req, res, next) {
   try {
+    requireAdmin(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const { batchId } = req.params;
 
@@ -189,6 +227,7 @@ export async function getImportBatchDetails(req, res, next) {
  */
 export async function getImportedRecords(req, res, next) {
   try {
+    requireRecordAccess(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = Math.min(50, Math.max(1, parseInt(req.query.limit, 10) || 15));
@@ -206,6 +245,17 @@ export async function getImportedRecords(req, res, next) {
 
     const filter = { accountId, isDeleted: { $ne: true } };
 
+    // Role scoping: sales_executive can ONLY see their assigned imported leads
+    if (req.user.role === 'sales_executive') {
+      filter.assignedTo = req.user._id;
+    } else if (req.user.role === 'admin') {
+      if (assignedTo === 'unassigned') {
+        filter.assignedTo = null;
+      } else if (assignedTo && mongoose.Types.ObjectId.isValid(assignedTo)) {
+        filter.assignedTo = new mongoose.Types.ObjectId(assignedTo);
+      }
+    }
+
     if (batchId && mongoose.Types.ObjectId.isValid(batchId)) {
       filter.importBatchId = new mongoose.Types.ObjectId(batchId);
     }
@@ -216,12 +266,6 @@ export async function getImportedRecords(req, res, next) {
 
     if (source && source !== 'all') {
       filter.source = source;
-    }
-
-    if (assignedTo === 'unassigned') {
-      filter.assignedTo = null;
-    } else if (assignedTo && mongoose.Types.ObjectId.isValid(assignedTo)) {
-      filter.assignedTo = new mongoose.Types.ObjectId(assignedTo);
     }
 
     if (search && search.trim()) {
@@ -278,6 +322,7 @@ export async function getImportedRecords(req, res, next) {
  */
 export async function getImportedRecordById(req, res, next) {
   try {
+    requireRecordAccess(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const { id } = req.params;
 
@@ -285,7 +330,12 @@ export async function getImportedRecordById(req, res, next) {
       return res.status(400).json({ success: false, message: 'Invalid lead ID format.' });
     }
 
-    const lead = await ImportedLead.findOne({ _id: id, accountId, isDeleted: { $ne: true } })
+    const filter = { _id: id, accountId, isDeleted: { $ne: true } };
+    if (req.user.role === 'sales_executive') {
+      filter.assignedTo = req.user._id;
+    }
+
+    const lead = await ImportedLead.findOne(filter)
       .populate('assignedTo', '_id name email role')
       .populate('importBatchId', '_id originalFilename createdAt')
       .lean();
@@ -308,6 +358,7 @@ export async function getImportedRecordById(req, res, next) {
  */
 export async function updateImportedRecordStatus(req, res, next) {
   try {
+    requireRecordAccess(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const { id } = req.params;
     const { status: targetStatus, note, lostReason } = req.body;
@@ -316,7 +367,12 @@ export async function updateImportedRecordStatus(req, res, next) {
       return res.status(400).json({ success: false, message: 'Invalid lead ID format.' });
     }
 
-    const lead = await ImportedLead.findOne({ _id: id, accountId, isDeleted: { $ne: true } });
+    const filter = { _id: id, accountId, isDeleted: { $ne: true } };
+    if (req.user.role === 'sales_executive') {
+      filter.assignedTo = req.user._id;
+    }
+
+    const lead = await ImportedLead.findOne(filter);
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Imported lead not found.' });
     }
@@ -369,6 +425,7 @@ export async function updateImportedRecordStatus(req, res, next) {
  */
 export async function scheduleImportedRecordFollowUp(req, res, next) {
   try {
+    requireRecordAccess(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const { id } = req.params;
     const { date, nextFollowUpDate, remarks } = req.body;
@@ -378,7 +435,12 @@ export async function scheduleImportedRecordFollowUp(req, res, next) {
       return res.status(400).json({ success: false, message: 'Invalid lead ID format.' });
     }
 
-    const lead = await ImportedLead.findOne({ _id: id, accountId, isDeleted: { $ne: true } });
+    const filter = { _id: id, accountId, isDeleted: { $ne: true } };
+    if (req.user.role === 'sales_executive') {
+      filter.assignedTo = req.user._id;
+    }
+
+    const lead = await ImportedLead.findOne(filter);
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Imported lead not found.' });
     }
@@ -421,6 +483,7 @@ export async function scheduleImportedRecordFollowUp(req, res, next) {
  */
 export async function completeImportedRecordFollowUp(req, res, next) {
   try {
+    requireRecordAccess(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const { id } = req.params;
     const { outcomeNotes } = req.body || {};
@@ -429,7 +492,12 @@ export async function completeImportedRecordFollowUp(req, res, next) {
       return res.status(400).json({ success: false, message: 'Invalid lead ID format.' });
     }
 
-    const lead = await ImportedLead.findOne({ _id: id, accountId, isDeleted: { $ne: true } });
+    const filter = { _id: id, accountId, isDeleted: { $ne: true } };
+    if (req.user.role === 'sales_executive') {
+      filter.assignedTo = req.user._id;
+    }
+
+    const lead = await ImportedLead.findOne(filter);
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Imported lead not found.' });
     }
@@ -466,11 +534,22 @@ export async function completeImportedRecordFollowUp(req, res, next) {
  */
 export async function getImportedRecordActivities(req, res, next) {
   try {
+    requireRecordAccess(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const { id } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid lead ID format.' });
+    }
+
+    const filter = { _id: id, accountId, isDeleted: { $ne: true } };
+    if (req.user.role === 'sales_executive') {
+      filter.assignedTo = req.user._id;
+    }
+
+    const lead = await ImportedLead.findOne(filter).select('_id');
+    if (!lead) {
+      return res.status(404).json({ success: false, message: 'Imported lead not found.' });
     }
 
     const activities = await Activity.find({
@@ -494,6 +573,7 @@ export async function getImportedRecordActivities(req, res, next) {
  */
 export async function createImportedRecordActivity(req, res, next) {
   try {
+    requireRecordAccess(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const { id } = req.params;
     const { type, summary, metadata = {} } = req.body;
@@ -502,7 +582,12 @@ export async function createImportedRecordActivity(req, res, next) {
       return res.status(400).json({ success: false, message: 'Invalid lead ID format.' });
     }
 
-    const lead = await ImportedLead.findOne({ _id: id, accountId, isDeleted: { $ne: true } });
+    const filter = { _id: id, accountId, isDeleted: { $ne: true } };
+    if (req.user.role === 'sales_executive') {
+      filter.assignedTo = req.user._id;
+    }
+
+    const lead = await ImportedLead.findOne(filter);
     if (!lead) {
       return res.status(404).json({ success: false, message: 'Imported lead not found.' });
     }
@@ -542,6 +627,7 @@ export async function createImportedRecordActivity(req, res, next) {
  */
 export async function bulkAssignImportedRecords(req, res, next) {
   try {
+    requireAdmin(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const { leadIds, assignedTo } = req.body;
     const uniqueLeadIds = [...new Set(leadIds)];
@@ -632,6 +718,7 @@ export async function bulkAssignImportedRecords(req, res, next) {
  */
 export async function bulkDeleteImportedRecords(req, res, next) {
   try {
+    requireAdmin(req);
     const accountId = env.WINDSOR_ACCOUNT_ID;
     const { leadIds } = req.body;
     const uniqueLeadIds = [...new Set(leadIds)];

@@ -61,17 +61,15 @@ export function Sidebar({ isOpen, onClose }) {
             <span className="nav-item__label">Leads</span>
           </button>
 
-          {isAdmin && (
-            <button
-              type="button"
-              className={`nav-item ${currentPath === '/import' ? 'nav-item--active' : ''}`}
-              onClick={() => handleNav('/import')}
-            >
-              <span className="nav-item__indicator" aria-hidden="true" />
-              <IconFileSpreadsheet size={18} className="nav-item__icon" />
-              <span className="nav-item__label">Excel Import</span>
-            </button>
-          )}
+          <button
+            type="button"
+            className={`nav-item ${currentPath === '/import' ? 'nav-item--active' : ''}`}
+            onClick={() => handleNav('/import')}
+          >
+            <span className="nav-item__indicator" aria-hidden="true" />
+            <IconFileSpreadsheet size={18} className="nav-item__icon" />
+            <span className="nav-item__label">{isAdmin ? 'Excel Import' : 'Imported Leads'}</span>
+          </button>
 
           {isAdmin && (
             <button

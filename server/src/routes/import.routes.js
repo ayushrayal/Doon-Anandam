@@ -21,13 +21,17 @@ import { authorize } from '../middleware/authorize.js';
 import { verifyOrigin } from '../middleware/verifyOrigin.js';
 import { validateBody } from '../middleware/validate.js';
 import { bulkAssignSchema, bulkDeleteSchema } from '../schemas/lead.schema.js';
-import { MAX_FILE_SIZE_BYTES } from '../services/leadImport.service.js';
+import {
+  MAX_FILE_SIZE_BYTES,
+  uploadDiskStorage,
+  safeUnlink,
+} from '../services/leadImport.service.js';
 
 const router = Router();
 
-// Configure Multer for in-memory Excel file uploads with strict size and format validation (25 MB)
+// Configure Multer for streaming disk-based Excel file uploads with strict size and format validation (25 MB preserved)
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: uploadDiskStorage,
   limits: {
     fileSize: MAX_FILE_SIZE_BYTES,
   },
@@ -48,20 +52,33 @@ const upload = multer({
   },
 });
 
-// Protect all Import module routes: Authenticated & Admin-Only
+// Protect all Import module routes with authentication
 router.use(authenticate);
-router.use(authorize(['admin']));
 
-// 1. Download formatted Excel template
-router.get('/template', downloadTemplate);
+// Role authorization middlewares
+const requireAdminRole = authorize(['admin']);
+const requireRecordAccessRole = authorize(['admin', 'sales_executive']);
 
-// 2. Upload workbook and generate validation/duplicate preview
+// 1. Download formatted Excel template (Admin-Only)
+router.get('/template', requireAdminRole, downloadTemplate);
+
+// 2. Upload workbook and generate validation/duplicate preview (Admin-Only)
 router.post(
   '/preview',
+  requireAdminRole,
   verifyOrigin,
   (req, res, next) => {
-    upload.single('file')(req, res, (err) => {
+    req.on('aborted', async () => {
+      if (req.file?.path) {
+        await safeUnlink(req.file.path);
+      }
+    });
+
+    upload.single('file')(req, res, async (err) => {
       if (err) {
+        if (req.file?.path) {
+          await safeUnlink(req.file.path);
+        }
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({
             success: false,
@@ -79,35 +96,39 @@ router.post(
   previewImport
 );
 
-// 3. Confirm previewed import batch (idempotent write)
-router.post('/confirm', verifyOrigin, confirmImport);
+// 3. Confirm previewed import batch (idempotent write, Admin-Only)
+router.post('/confirm', requireAdminRole, verifyOrigin, confirmImport);
 
-// 4. Retrieve historical import batches
-router.get('/history', getImportHistory);
+// 4. Retrieve historical import batches (Admin-Only)
+router.get('/history', requireAdminRole, getImportHistory);
 
-// 5. Retrieve single batch details and error log
-router.get('/history/:batchId', getImportBatchDetails);
+// 5. Retrieve single batch details and error log (Admin-Only)
+router.get('/history/:batchId', requireAdminRole, getImportBatchDetails);
 
-// 6. Manage imported leads (completely isolated from Meta/Windsor Leads pipeline)
-router.get('/records', getImportedRecords);
+// 6. Bulk administration of imported leads (Admin-Only)
 router.post(
   '/records/bulk/assign',
+  requireAdminRole,
   verifyOrigin,
   validateBody(bulkAssignSchema),
   bulkAssignImportedRecords
 );
 router.post(
   '/records/bulk/delete',
+  requireAdminRole,
   verifyOrigin,
   validateBody(bulkDeleteSchema),
   bulkDeleteImportedRecords
 );
-router.get('/records/:id', getImportedRecordById);
-router.patch('/records/:id/status', verifyOrigin, updateImportedRecordStatus);
-router.post('/records/:id/follow-up', verifyOrigin, scheduleImportedRecordFollowUp);
-router.patch('/records/:id/follow-up/complete', verifyOrigin, completeImportedRecordFollowUp);
-router.post('/records/:id/follow-up/complete', verifyOrigin, completeImportedRecordFollowUp);
-router.get('/records/:id/activities', getImportedRecordActivities);
-router.post('/records/:id/activities', verifyOrigin, createImportedRecordActivity);
+
+// 7. Manage imported leads (Accessible to Admin & assigned Sales Executive)
+router.get('/records', requireRecordAccessRole, getImportedRecords);
+router.get('/records/:id', requireRecordAccessRole, getImportedRecordById);
+router.patch('/records/:id/status', requireRecordAccessRole, verifyOrigin, updateImportedRecordStatus);
+router.post('/records/:id/follow-up', requireRecordAccessRole, verifyOrigin, scheduleImportedRecordFollowUp);
+router.patch('/records/:id/follow-up/complete', requireRecordAccessRole, verifyOrigin, completeImportedRecordFollowUp);
+router.post('/records/:id/follow-up/complete', requireRecordAccessRole, verifyOrigin, completeImportedRecordFollowUp);
+router.get('/records/:id/activities', requireRecordAccessRole, getImportedRecordActivities);
+router.post('/records/:id/activities', requireRecordAccessRole, verifyOrigin, createImportedRecordActivity);
 
 export default router;

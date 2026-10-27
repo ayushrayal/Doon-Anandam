@@ -1,3 +1,8 @@
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import multer from 'multer';
 import ExcelJS from 'exceljs';
 import mongoose from 'mongoose';
 import Lead from '../models/Lead.js';
@@ -11,8 +16,91 @@ import { sanitizeForExcel } from '../controllers/lead.controller.js';
 import { invalidateAnalyticsCache } from '../controllers/analytics.controller.js';
 
 export const MAX_IMPORT_ROWS = 2000;
-export const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+export const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB preserved
 export const PREVIEW_TTL_MINUTES = 30;
+
+// Dedicated temporary upload directory for streamed Excel uploads
+export const UPLOAD_TEMP_DIR = path.join(os.tmpdir(), 'doon-anandam-crm-imports');
+
+// Ensure directory exists synchronously on initialization
+try {
+  if (!fs.existsSync(UPLOAD_TEMP_DIR)) {
+    fs.mkdirSync(UPLOAD_TEMP_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.warn('[Import Storage] Failed to initialize upload temp dir:', err.message);
+}
+
+/**
+ * Safely removes a temporary file without throwing if already deleted.
+ */
+export async function safeUnlink(filePath) {
+  if (!filePath) return;
+  try {
+    await fs.promises.unlink(filePath);
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.warn(`[File Cleanup] Failed to delete temp file ${filePath}:`, err.message);
+    }
+  }
+}
+
+/**
+ * Cleans up orphaned upload files older than maxAgeMs (default: 1 hour).
+ */
+export async function cleanupStaleUploads(maxAgeMs = 3600000) {
+  try {
+    if (!fs.existsSync(UPLOAD_TEMP_DIR)) return;
+    const files = await fs.promises.readdir(UPLOAD_TEMP_DIR);
+    const now = Date.now();
+    for (const file of files) {
+      if (!file.startsWith('import-') || !file.endsWith('.xlsx')) continue;
+      const filePath = path.join(UPLOAD_TEMP_DIR, file);
+      try {
+        const stats = await fs.promises.stat(filePath);
+        if (now - stats.mtimeMs > maxAgeMs) {
+          await fs.promises.unlink(filePath);
+        }
+      } catch {
+        // Ignore individual stat/unlink errors
+      }
+    }
+  } catch {
+    // Ignore directory scan errors
+  }
+}
+
+// Perform non-blocking cleanup of stale uploads on startup
+cleanupStaleUploads().catch(() => {});
+
+// Multer disk storage engine to stream multipart uploads directly to disk without buffer RAM bloat
+export const uploadDiskStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    try {
+      if (!fs.existsSync(UPLOAD_TEMP_DIR)) {
+        fs.mkdirSync(UPLOAD_TEMP_DIR, { recursive: true });
+      }
+      cb(null, UPLOAD_TEMP_DIR);
+    } catch (err) {
+      cb(err);
+    }
+  },
+  filename: (req, file, cb) => {
+    const randomSuffix = crypto.randomBytes(16).toString('hex');
+    cb(null, `import-${Date.now()}-${randomSuffix}.xlsx`);
+  },
+});
+
+// Process-local concurrency lock to protect Render Starter resource bounds
+let isImportInProgress = false;
+
+export function getImportStatus() {
+  return isImportInProgress;
+}
+
+export function resetImportStatusForTesting() {
+  isImportInProgress = false;
+}
 
 /**
  * Explicit dictionary of column header aliases for flexible spreadsheet mapping.
@@ -138,34 +226,63 @@ export function extractCellValue(cell) {
 }
 
 /**
- * Parses an uploaded Excel buffer into a structured preview batch with validation & deduplication.
+ * Parses an uploaded Excel workbook (from temporary disk path or memory buffer) into a structured preview batch with validation & deduplication.
  */
 export async function parseAndPreviewWorkbook({
+  filePath,
   buffer,
   originalFilename,
   fileSizeBytes,
   user,
 }) {
+  if (!user || user.role !== 'admin') {
+    const error = new Error('Forbidden: Only Administrators can perform Excel Import.');
+    error.status = 403;
+    error.code = 'FORBIDDEN_ADMIN_ONLY';
+    throw error;
+  }
+
   const accountId = env.WINDSOR_ACCOUNT_ID;
   if (!accountId) {
     throw new Error('System account ID is not configured.');
   }
 
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(buffer);
-  } catch (err) {
-    const error = new Error('Invalid or corrupted Excel file. Please upload a valid .xlsx workbook.');
-    error.status = 400;
+  // Enforce single-flight import concurrency to prevent Render Starter memory spikes
+  if (isImportInProgress) {
+    const error = new Error(
+      'Another import operation is currently in progress. Please wait for it to complete.'
+    );
+    error.status = 429;
+    error.code = 'IMPORT_IN_PROGRESS';
     throw error;
   }
 
-  const worksheet = workbook.worksheets[0];
-  if (!worksheet || worksheet.rowCount < 2) {
-    const error = new Error('The uploaded spreadsheet is empty or missing data rows.');
-    error.status = 400;
-    throw error;
-  }
+  isImportInProgress = true;
+
+  try {
+    const workbook = new ExcelJS.Workbook();
+    try {
+      if (filePath) {
+        await workbook.xlsx.readFile(filePath);
+      } else if (buffer) {
+        await workbook.xlsx.load(buffer);
+      } else {
+        const error = new Error('No file provided for parsing.');
+        error.status = 400;
+        throw error;
+      }
+    } catch (err) {
+      const error = new Error('Invalid or corrupted Excel file. Please upload a valid .xlsx workbook.');
+      error.status = 400;
+      throw error;
+    }
+
+    const worksheet = workbook.worksheets[0];
+    if (!worksheet || worksheet.rowCount < 2) {
+      const error = new Error('The uploaded spreadsheet is empty or missing data rows.');
+      error.status = 400;
+      throw error;
+    }
 
   // 1. Analyze Header Row (Row 1)
   const headerRow = worksheet.getRow(1);
@@ -535,24 +652,34 @@ export async function parseAndPreviewWorkbook({
     expiresAt,
   });
 
-  return {
-    batchId: importBatch._id.toString(),
-    originalFilename,
-    totalRows: parsedRows.length,
-    validCount,
-    duplicateCount,
-    errorCount,
-    ignoredColumns,
-    expiresAt,
-    // Return sample rows for UI preview (first 25 rows)
-    previewRows: rows.slice(0, 25),
-  };
+    return {
+      batchId: importBatch._id.toString(),
+      originalFilename,
+      totalRows: parsedRows.length,
+      validCount,
+      duplicateCount,
+      errorCount,
+      ignoredColumns,
+      expiresAt,
+      // Return sample rows for UI preview (first 25 rows)
+      previewRows: rows.slice(0, 25),
+    };
+  } finally {
+    isImportInProgress = false;
+  }
 }
 
 /**
- * Atomically confirms an import batch, executes bulk write, records provenance, and creates activity records.
+ * Atomically confirms an import batch, executes bounded bulk writes, records provenance, and creates activity records.
  */
 export async function confirmImportBatch({ batchId, user }) {
+  if (!user || user.role !== 'admin') {
+    const error = new Error('Forbidden: Only Administrators can confirm Excel Import batches.');
+    error.status = 403;
+    error.code = 'FORBIDDEN_ADMIN_ONLY';
+    throw error;
+  }
+
   const accountId = env.WINDSOR_ACCOUNT_ID;
   if (!accountId) {
     throw new Error('System account ID is not configured.');
@@ -564,160 +691,184 @@ export async function confirmImportBatch({ batchId, user }) {
     throw error;
   }
 
-  // 1. Atomic state transition: 'preview' -> 'processing' (ensures idempotency against double clicks)
-  const batch = await ImportBatch.findOneAndUpdate(
-    {
-      _id: batchId,
-      accountId,
-      status: 'preview',
-    },
-    {
-      $set: { status: 'processing' },
-    },
-    { new: true }
-  );
-
-  if (!batch) {
-    const existing = await ImportBatch.findOne({ _id: batchId, accountId });
-    if (existing && existing.status === 'completed') {
-      const error = new Error('This import batch has already been processed and completed.');
-      error.status = 409;
-      error.code = 'BATCH_ALREADY_COMPLETED';
-      throw error;
-    }
+  // Enforce single-flight import concurrency to protect Render Starter resource bounds
+  if (isImportInProgress) {
     const error = new Error(
-      'Import batch not found or preview session has expired. Please upload the file again.'
+      'Another import operation is currently in progress. Please wait for it to complete.'
     );
-    error.status = 404;
+    error.status = 429;
+    error.code = 'IMPORT_IN_PROGRESS';
     throw error;
   }
 
-  // 2. Filter valid rows
-  const validRows = batch.rows.filter((r) => r.status === 'valid');
+  isImportInProgress = true;
 
-  if (validRows.length === 0) {
+  try {
+    // 1. Atomic state transition: 'preview' -> 'processing' (ensures idempotency against double clicks)
+    const batch = await ImportBatch.findOneAndUpdate(
+      {
+        _id: batchId,
+        accountId,
+        status: 'preview',
+      },
+      {
+        $set: { status: 'processing' },
+      },
+      { new: true }
+    );
+
+    if (!batch) {
+      const existing = await ImportBatch.findOne({ _id: batchId, accountId });
+      if (existing && existing.status === 'completed') {
+        const error = new Error('This import batch has already been processed and completed.');
+        error.status = 409;
+        error.code = 'BATCH_ALREADY_COMPLETED';
+        throw error;
+      }
+      const error = new Error(
+        'Import batch not found or preview session has expired. Please upload the file again.'
+      );
+      error.status = 404;
+      throw error;
+    }
+
+    // 2. Filter valid rows
+    const validRows = batch.rows.filter((r) => r.status === 'valid');
+
+    if (validRows.length === 0) {
+      await ImportBatch.updateOne(
+        { _id: batch._id },
+        { $set: { status: 'completed', expiresAt: null } }
+      );
+      return {
+        batchId: batch._id.toString(),
+        status: 'completed',
+        insertedCount: 0,
+        skippedCount: batch.duplicateCount,
+        errorCount: batch.errorCount,
+        message: 'No valid leads to import. All rows were either duplicates or had errors.',
+      };
+    }
+
+    const leadsToInsert = [];
+    const now = new Date();
+
+    for (const row of validRows) {
+      const d = row.data;
+      leadsToInsert.push({
+        accountId,
+        importBatchId: batch._id,
+        uploadedBy: user._id,
+        fullName: d.fullName,
+        phoneNumber: d.phoneNumber,
+        email: d.email || null,
+        status: d.status || 'new',
+        assignedTo: d.assignedTo || null,
+        source: d.source || 'manual',
+        campaignName: d.campaignName || '',
+        notes: d.notes || '',
+        nextFollowUpDate: d.nextFollowUpDate || null,
+        nextFollowUpRemarks: d.nextFollowUpRemarks || '',
+        leadCreatedAt: d.leadCreatedAt || now,
+        externalLeadId: d.externalLeadId || '',
+      });
+    }
+
+    // Process database writes in bounded chunks of 250 records to prevent memory/BSON spikes
+    const DB_BATCH_SIZE = 250;
+    let insertedCount = 0;
+    let failedCount = 0;
+    const insertedLeads = [];
+
+    for (let i = 0; i < leadsToInsert.length; i += DB_BATCH_SIZE) {
+      const chunk = leadsToInsert.slice(i, i + DB_BATCH_SIZE);
+      try {
+        // Unordered insert into dedicated ImportedLead collection (isolated from Meta/Windsor Leads)
+        const insertResult = await ImportedLead.insertMany(chunk, {
+          ordered: false,
+          rawResult: true,
+        });
+        const count = insertResult.insertedCount || Object.keys(insertResult.insertedIds || {}).length;
+        insertedCount += count;
+
+        if (insertResult.insertedIds) {
+          for (const idx of Object.keys(insertResult.insertedIds)) {
+            insertedLeads.push({
+              _id: insertResult.insertedIds[idx],
+              assignedTo: chunk[Number(idx)]?.assignedTo,
+            });
+          }
+        }
+      } catch (bulkError) {
+        if (bulkError.insertedDocs) {
+          insertedCount += bulkError.insertedDocs.length;
+          insertedLeads.push(...bulkError.insertedDocs);
+        } else if (bulkError.result?.nInserted) {
+          insertedCount += bulkError.result.nInserted;
+        }
+        failedCount += (bulkError.writeErrors?.length || 1);
+      }
+    }
+
+    // 3. Create initial Activity record for imported leads (Auditable Timeline) in bounded chunks
+    if (insertedLeads.length > 0) {
+      const activityBatch = insertedLeads.map((lead) => ({
+        leadId: lead._id,
+        leadModel: 'ImportedLead',
+        accountId,
+        type: 'note',
+        summary: `Lead imported via Excel file "${batch.originalFilename}" (Batch #${batch._id
+          .toString()
+          .slice(-6)})`,
+        performedBy: user._id,
+        performedAt: now,
+        metadata: {
+          importBatchId: batch._id,
+          filename: batch.originalFilename,
+        },
+      }));
+
+      for (let i = 0; i < activityBatch.length; i += DB_BATCH_SIZE) {
+        const actChunk = activityBatch.slice(i, i + DB_BATCH_SIZE);
+        try {
+          await Activity.insertMany(actChunk, { ordered: false });
+        } catch (actErr) {
+          console.error('[Activity Log Error during import chunk]', actErr.message);
+        }
+      }
+    }
+
+    // 4. Update batch record to 'completed' and clear expiresAt so history is permanent
     await ImportBatch.updateOne(
       { _id: batch._id },
-      { $set: { status: 'completed', expiresAt: null } }
+      {
+        $set: {
+          status: 'completed',
+          expiresAt: null, // History is permanent
+          'summary.insertedCount': insertedCount,
+          'summary.failedWriteCount': failedCount,
+          'summary.completedAt': now,
+        },
+      }
     );
+
+    // 5. Invalidate dashboard analytics cache for the account
+    invalidateAnalyticsCache(accountId);
+
     return {
       batchId: batch._id.toString(),
       status: 'completed',
-      insertedCount: 0,
+      insertedCount,
       skippedCount: batch.duplicateCount,
-      errorCount: batch.errorCount,
-      message: 'No valid leads to import. All rows were either duplicates or had errors.',
+      errorCount: batch.errorCount + failedCount,
+      totalRows: batch.totalRows,
+      message: `Successfully imported ${insertedCount.toLocaleString()} lead${
+        insertedCount === 1 ? '' : 's'
+      }.`,
     };
+  } finally {
+    isImportInProgress = false;
   }
-
-  const leadsToInsert = [];
-  const now = new Date();
-
-  for (const row of validRows) {
-    const d = row.data;
-    leadsToInsert.push({
-      accountId,
-      importBatchId: batch._id,
-      uploadedBy: user._id,
-      fullName: d.fullName,
-      phoneNumber: d.phoneNumber,
-      email: d.email || null,
-      status: d.status || 'new',
-      assignedTo: d.assignedTo || null,
-      source: d.source || 'manual',
-      campaignName: d.campaignName || '',
-      notes: d.notes || '',
-      nextFollowUpDate: d.nextFollowUpDate || null,
-      nextFollowUpRemarks: d.nextFollowUpRemarks || '',
-      leadCreatedAt: d.leadCreatedAt || now,
-      externalLeadId: d.externalLeadId || '',
-    });
-  }
-
-  let insertedCount = 0;
-  let failedCount = 0;
-  const insertedLeads = [];
-
-  try {
-    // Unordered insert into dedicated ImportedLead collection (isolated from Meta/Windsor Leads)
-    const insertResult = await ImportedLead.insertMany(leadsToInsert, {
-      ordered: false,
-      rawResult: true,
-    });
-    insertedCount = insertResult.insertedCount || Object.keys(insertResult.insertedIds || {}).length;
-
-    // Collect inserted lead IDs for activity logs
-    if (insertResult.insertedIds) {
-      for (const idx of Object.keys(insertResult.insertedIds)) {
-        insertedLeads.push({
-          _id: insertResult.insertedIds[idx],
-          assignedTo: leadsToInsert[Number(idx)]?.assignedTo,
-        });
-      }
-    }
-  } catch (bulkError) {
-    if (bulkError.insertedDocs) {
-      insertedCount = bulkError.insertedDocs.length;
-      insertedLeads.push(...bulkError.insertedDocs);
-    } else if (bulkError.result?.nInserted) {
-      insertedCount = bulkError.result.nInserted;
-    }
-    failedCount = (bulkError.writeErrors?.length || 1);
-  }
-
-  // 3. Create initial Activity record for imported leads (Auditable Timeline)
-  if (insertedLeads.length > 0) {
-    const activityBatch = insertedLeads.map((lead) => ({
-      leadId: lead._id,
-      leadModel: 'ImportedLead',
-      accountId,
-      type: 'note',
-      summary: `Lead imported via Excel file "${batch.originalFilename}" (Batch #${batch._id
-        .toString()
-        .slice(-6)})`,
-      performedBy: user._id,
-      performedAt: now,
-      metadata: {
-        importBatchId: batch._id,
-        filename: batch.originalFilename,
-      },
-    }));
-
-    try {
-      await Activity.insertMany(activityBatch, { ordered: false });
-    } catch (actErr) {
-      console.error('[Activity Log Error during import]', actErr);
-    }
-  }
-
-  // 4. Update batch record to 'completed' and clear expiresAt so history is permanent
-  await ImportBatch.updateOne(
-    { _id: batch._id },
-    {
-      $set: {
-        status: 'completed',
-        expiresAt: null, // History is permanent
-        'summary.insertedCount': insertedCount,
-        'summary.failedWriteCount': failedCount,
-        'summary.completedAt': now,
-      },
-    }
-  );
-
-  // 5. Invalidate dashboard analytics cache for the account
-  invalidateAnalyticsCache(accountId);
-
-  return {
-    batchId: batch._id.toString(),
-    status: 'completed',
-    insertedCount,
-    skippedCount: batch.duplicateCount,
-    errorCount: batch.errorCount + failedCount,
-    totalRows: batch.totalRows,
-    message: `Successfully imported ${insertedCount.toLocaleString()} lead${
-      insertedCount === 1 ? '' : 's'
-    }.`,
-  };
 }
 
 /**

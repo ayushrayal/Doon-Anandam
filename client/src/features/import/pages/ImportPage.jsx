@@ -30,7 +30,7 @@ export function ImportPage() {
   const { navigate } = useRouter();
 
   // Tab State: 'import' | 'records' | 'history'
-  const [activeTab, setActiveTab] = useState('import');
+  const [activeTab, setActiveTab] = useState(isAdmin ? 'import' : 'records');
 
   // Import Workflow State: 'upload' | 'preview' | 'completed'
   const [stage, setStage] = useState('upload');
@@ -79,7 +79,24 @@ export function ImportPage() {
 
   const fileInputRef = useRef(null);
 
-  // Load Active Users for Bulk Assignment
+  const isSalesExecutive = user?.role === 'sales_executive';
+  const hasAccess = isAdmin || isSalesExecutive;
+
+  // Lock non-admins strictly to the 'records' tab
+  useEffect(() => {
+    if (!isAdmin && activeTab !== 'records') {
+      setActiveTab('records');
+    }
+  }, [isAdmin, activeTab]);
+
+  // If user is unauthenticated or has an unauthorized role, redirect to dashboard
+  useEffect(() => {
+    if (!hasAccess) {
+      navigate('/dashboard');
+    }
+  }, [hasAccess, navigate]);
+
+  // Load Active Users for Bulk Assignment (Admin only)
   useEffect(() => {
     if (isAdmin) {
       apiFetch('/users?isActive=true&limit=50')
@@ -89,6 +106,17 @@ export function ImportPage() {
         .catch((err) => console.error('[Load Users Error]', err));
     }
   }, [isAdmin]);
+
+  if (!hasAccess) {
+    return (
+      <div className="import-page-unauthorized" style={{ padding: '3rem 2rem', textAlign: 'center' }}>
+        <h2>Access Restricted</h2>
+        <p style={{ marginTop: '0.5rem', color: '#64748b' }}>
+          You do not have permission to access imported leads. Redirecting to dashboard...
+        </p>
+      </div>
+    );
+  }
 
   // Reset bulk selection on tab switch, search, or status filter change
   useEffect(() => {
@@ -423,61 +451,69 @@ export function ImportPage() {
       {/* Top Header */}
       <div className="import-page__header">
         <div className="import-page__title-group">
-          <h1 className="import-page__title">Excel Lead Import</h1>
+          <h1 className="import-page__title">
+            {isAdmin ? 'Excel Lead Import' : 'Assigned Imported Leads'}
+          </h1>
           <p className="import-page__subtitle">
-            Upload, validate, and manage client leads in a dedicated workflow, completely separated from Meta/Windsor sync.
+            {isAdmin
+              ? 'Upload, validate, and manage client leads in a dedicated workflow, completely separated from Meta/Windsor sync.'
+              : 'View, track, and manage all Excel imported client leads assigned to you.'}
           </p>
         </div>
 
-        <div className="import-page__header-actions">
+        {isAdmin && (
+          <div className="import-page__header-actions">
+            <button
+              type="button"
+              className="template-btn"
+              onClick={handleDownloadTemplate}
+              disabled={templateLoading}
+              title="Download formatted sample Excel template (.xlsx)"
+            >
+              <IconDownload size={15} />
+              <span>{templateLoading ? 'Generating...' : 'Download Template'}</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Tab Navigation (Only visible to Admin) */}
+      {isAdmin && (
+        <div className="import-page__tabs" role="tablist">
           <button
             type="button"
-            className="template-btn"
-            onClick={handleDownloadTemplate}
-            disabled={templateLoading}
-            title="Download formatted sample Excel template (.xlsx)"
+            role="tab"
+            aria-selected={activeTab === 'import'}
+            className={`tab-btn ${activeTab === 'import' ? 'tab-btn--active' : ''}`}
+            onClick={() => setActiveTab('import')}
           >
-            <IconDownload size={15} />
-            <span>{templateLoading ? 'Generating...' : 'Download Template'}</span>
+            <IconFileSpreadsheet size={16} />
+            <span>Import Leads</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'records'}
+            className={`tab-btn ${activeTab === 'records' ? 'tab-btn--active' : ''}`}
+            onClick={() => setActiveTab('records')}
+          >
+            <IconUsers size={16} />
+            <span>Imported Leads {recordsTotal > 0 && `(${recordsTotal.toLocaleString()})`}</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'history'}
+            className={`tab-btn ${activeTab === 'history' ? 'tab-btn--active' : ''}`}
+            onClick={() => setActiveTab('history')}
+          >
+            <IconHistory size={16} />
+            <span>Import History</span>
           </button>
         </div>
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="import-page__tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'import'}
-          className={`tab-btn ${activeTab === 'import' ? 'tab-btn--active' : ''}`}
-          onClick={() => setActiveTab('import')}
-        >
-          <IconFileSpreadsheet size={16} />
-          <span>Import Leads</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'records'}
-          className={`tab-btn ${activeTab === 'records' ? 'tab-btn--active' : ''}`}
-          onClick={() => setActiveTab('records')}
-        >
-          <IconUsers size={16} />
-          <span>Imported Leads {recordsTotal > 0 && `(${recordsTotal.toLocaleString()})`}</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'history'}
-          className={`tab-btn ${activeTab === 'history' ? 'tab-btn--active' : ''}`}
-          onClick={() => setActiveTab('history')}
-        >
-          <IconHistory size={16} />
-          <span>Import History</span>
-        </button>
-      </div>
+      )}
 
       {/* Global Error Banner */}
       {errorBanner && (
@@ -910,11 +946,13 @@ export function ImportPage() {
             <LoadingState message="Loading imported leads..." />
           ) : importedRecords.length === 0 ? (
             <EmptyState
-              title="No Imported Leads Found"
+              title={isAdmin ? 'No Imported Leads Found' : 'No Assigned Leads Found'}
               message={
                 recordSearch || recordStatusFilter !== 'all'
                   ? 'No imported leads match your search or filter criteria.'
-                  : 'No Excel leads have been imported yet. Use the "Import Leads" tab to upload your first workbook.'
+                  : isAdmin
+                  ? 'No Excel leads have been imported yet. Use the "Import Leads" tab to upload your first workbook.'
+                  : 'You currently have no imported leads assigned to you.'
               }
             />
           ) : (
@@ -922,17 +960,19 @@ export function ImportPage() {
               <table className="records-table">
                 <thead>
                   <tr>
-                    <th style={{ width: '44px', textAlign: 'center' }}>
-                      <input
-                        type="checkbox"
-                        aria-label="Select all imported leads on current page"
-                        checked={
-                          importedRecords.length > 0 &&
-                          importedRecords.every((r) => selectedRecordIds.includes(r._id))
-                        }
-                        onChange={handleSelectAllRecordsOnPage}
-                      />
-                    </th>
+                    {isAdmin && (
+                      <th style={{ width: '44px', textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          aria-label="Select all imported leads on current page"
+                          checked={
+                            importedRecords.length > 0 &&
+                            importedRecords.every((r) => selectedRecordIds.includes(r._id))
+                          }
+                          onChange={handleSelectAllRecordsOnPage}
+                        />
+                      </th>
+                    )}
                     <th>Lead Name</th>
                     <th>Phone Number</th>
                     <th>Email Address</th>
@@ -962,17 +1002,19 @@ export function ImportPage() {
                           selectedRecordIds.includes(lead._id) ? 'record-row--selected' : ''
                         }`}
                       >
-                        <td
-                          style={{ width: '44px', textAlign: 'center' }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${lead.fullName}`}
-                            checked={selectedRecordIds.includes(lead._id)}
-                            onChange={() => toggleRecordSelection(lead._id)}
-                          />
-                        </td>
+                        {isAdmin && (
+                          <td
+                            style={{ width: '44px', textAlign: 'center' }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${lead.fullName}`}
+                              checked={selectedRecordIds.includes(lead._id)}
+                              onChange={() => toggleRecordSelection(lead._id)}
+                            />
+                          </td>
+                        )}
                         <td className="lead-name-cell">
                           <strong>{lead.fullName}</strong>
                         </td>
@@ -1374,8 +1416,8 @@ export function ImportPage() {
         </div>
       )}
 
-      {/* Floating Bulk Action Bar for Imported Leads */}
-      {activeTab === 'records' && selectedRecordIds.length > 0 && (
+      {/* Floating Bulk Action Bar for Imported Leads (Admin only) */}
+      {isAdmin && activeTab === 'records' && selectedRecordIds.length > 0 && (
         <div className="bulk-action-bar">
           <div className="bulk-action-bar__left">
             <span className="bulk-selection-count">
